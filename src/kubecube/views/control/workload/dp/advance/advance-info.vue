@@ -182,7 +182,6 @@ import repoSecretConfig from './repo-secret-config.vue';
 import deployConfig from './deploy-config.vue';
 import jobConfig from './job-config.vue';
 import workloadService from 'kubecube/services/k8s-resource';
-import { nsfDeploymentAnnotations } from 'kubecube/utils/constance';
 import labelEditor from 'kubecube/elComponent/label-editor.vue';
 import * as validators from 'kubecube/utils/validators';
 export default {
@@ -200,7 +199,6 @@ export default {
         return {
             validators,
             showDeployConfig: true,
-            nsfDeploymentAnnotations,
             restartPolicyList: [
                 // { value: 'Always', text: 'Always' },
                 { value: 'OnFailure', text: 'OnFailure' },
