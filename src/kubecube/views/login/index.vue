@@ -126,22 +126,23 @@
             </kube-form-item>
           </kube-form>
           <u-linear-layout
-            v-if="showGitHubLoginBtn"
+            v-for="(item, index) in ssoLogin"
+            :key="index"
             type="flex"
-            justify="center"
+            justify="left"
           >
             <u-button
               size="large"
               :class="$style.btn"
-              :icon="gitHubLoginPadding ? 'loading': ''"
-              :disabled="gitHubLoginPadding"
-              @click="jumpToGitHubLogin"
+              :icon="item.ssoLoginPadding ? 'loading': ''"
+              :disabled="loginPadding || item.ssoLoginPadding"
+              @click="jumpToGitHubLogin(item)"
             >
               <img
                 :class="$style.login_logo"
-                :src="gitHubImg"
+                :src="item.ssoImg"
               >
-              <span>使用GitHub账号登录</span>
+              <span>使用{{ item.ssoLoginConfig.describeName }}账号登录</span>
             </u-button>
           </u-linear-layout>
           <!-- <u-linear-layout
@@ -177,10 +178,10 @@ import userService from 'kubecube/services/user';
 import { setItem, getItem, removeItem } from 'kubecube/utils/persistant';
 import passwordDialog from './password.vue';
 import { urlSearchParse, urlSearchSerialize } from 'kubecube/utils/functional';
+import { BRAND_NAME } from 'kubecube/utils/brand';
 export default {
     metaInfo: {
-        title: 'kubecube',
-        titleTemplate: '%s - Login',
+        title: '登录',
     },
     components: {
         passwordDialog,
@@ -199,24 +200,22 @@ export default {
             showEYE: true,
             isError: false,
             loadingSubmit: false,
-            gitHubImg: require('./assets/github.png'),
-            gitHubLoginPadding: false,
-            gitHubLoginConfig: null,
-            showGitHubLoginBtn: false,
+            // one entry per enabled identity provider, keyed by the ConfigMap key
+            ssoLogin: {},
+            // defaults every provider inherits from the ConfigMap `global` block
+            global: {
+                host: '',
+                describeName: BRAND_NAME,
+                img: '',
+            },
+            loginPadding: false,
         };
     },
     computed: {
         user: sync('scope/user'),
     },
     created() {
-        const obj = urlSearchParse(window.location.search);
-        if (obj.code) {
-            this.showGitHubLoginBtn = true;
-            this.gitHubLoginPadding = true;
-            this.gitHubLogin(obj);
-        } else {
-            this.loadGitHubLoginConfig();
-        }
+        this.loadGitHubLoginConfig();
     },
     methods: {
         async login() {
@@ -250,8 +249,20 @@ export default {
             }
             // }
         },
-        async gitHubLogin(params) {
+        // Called with the parsed query string after an identity provider redirects
+        // back. `token` carries the authorization code (or ticket), `key` the
+        // provider key stashed in sessionStorage, `type` the login type the backend
+        // dispatches on.
+        async gitHubLogin(obj) {
             try {
+                const params = {};
+                params.token = obj.code || obj.ticket;
+                params.key = sessionStorage.getItem('sso');
+                if (this.ssoLogin[params.key] !== undefined && this.ssoLogin[params.key].ssoLoginConfig !== undefined) {
+                    params.type = this.ssoLogin[params.key].ssoLoginConfig.type || params.key;
+                } else {
+                    params.type = params.key;
+                }
                 const response = await userService.gitHubLogin({
                     params,
                 });
@@ -273,6 +284,8 @@ export default {
                 window.location.href = '/';
             }
         },
+        // Every key of the kubecube-auth-config ConfigMap except `global` is one
+        // identity provider; `global` carries the defaults they all inherit.
         async loadGitHubLoginConfig() {
             try {
                 const response = await userService.getConfigmap({
@@ -280,24 +293,60 @@ export default {
                         name: 'kubecube-auth-config',
                     },
                 });
-                const str = response.github;
-                const obj = {};
-                str.split('\n').forEach(i => {
-                    const arr = i.split(': ');
-                    if (arr[0]) {
-                        obj[arr[0]] = arr[1].trim();
+                if (response.global) {
+                    this.global = Object.assign(this.global, this.getObjByStr(response.global));
+                    delete response.global;
+                }
+                for (const key in response) {
+                    if (Object.hasOwnProperty.call(response, key)) {
+                        const obj = this.getObjByStr(response[key]);
+                        if (obj.enabled !== 'true') {
+                            continue;
+                        }
+                        obj.host = obj.host || this.global.host;
+                        obj.describeName = obj.describeName || this.global.describeName;
+                        this.$set(this.ssoLogin, key, {
+                            ssoImg: obj.img || this.global.img || require('./assets/github.png'),
+                            ssoLoginPadding: false,
+                            ssoLoginConfig: obj,
+                            ssoLoginKey: key,
+                        });
                     }
-                });
-                this.gitHubLoginConfig = obj;
-                if (obj.enabled === 'true') {
-                    this.showGitHubLoginBtn = true;
+                }
+                const query = urlSearchParse(window.location.search);
+                if (query.code || query.ticket) {
+                    this.loginPadding = true;
+                    this.gitHubLogin(query);
                 }
             } catch (error) {
                 console.log(error);
             }
         },
-        async jumpToGitHubLogin() {
-            window.location.href = `https://github.com/login/oauth/authorize?client_id=${this.gitHubLoginConfig.clientId}&state=STATE&redirect_uri=${this.gitHubLoginConfig.host}/#/login`;
+        jumpToGitHubLogin(item) {
+            sessionStorage.setItem('sso', item.ssoLoginKey);
+            this.loginPadding = true;
+            item.ssoLoginPadding = true;
+            let url = item.ssoLoginConfig.loginUrl;
+            if (!url) {
+                this.loginPadding = false;
+                item.ssoLoginPadding = false;
+                return;
+            }
+            url = url.replace('CLIENT_ID_VALUE', item.ssoLoginConfig.clientId)
+                .replace('SCOPE_VALUE', '')
+                .replace('HOST_VALUE', item.ssoLoginConfig.host);
+            window.location.href = url;
+        },
+        // Parses one `key: value` per line config block.
+        getObjByStr(str) {
+            const obj = {};
+            str.split('\n').forEach(i => {
+                const arr = i.split(': ');
+                if (arr[0]) {
+                    obj[arr[0]] = arr[1] === undefined ? '' : arr[1].trim();
+                }
+            });
+            return obj;
         },
     },
 };
