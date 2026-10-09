@@ -5,7 +5,7 @@
       @click="toIndex"
     >
       <a :class="$style.logo_icon" />
-      <span :class="$style.logo_title">KubeCube</span>
+      <span :class="$style.logo_title">{{ brandName }}</span>
 
     </span>
     <template v-if="!isInLogin">
@@ -71,6 +71,7 @@ import { get, sync } from 'vuex-pathify';
 import uAppTenantSelect from './header/u-app-tenant-select.vue';
 import uAppProjectSelect from './header/u-app-project-select.vue';
 import { removeItem } from 'kubecube/utils/persistant';
+import { BRAND_NAME } from 'kubecube/utils/brand';
 import {
     ROLES,
 } from 'kubecube/utils/constance';
@@ -83,6 +84,9 @@ export default {
         roleLoading: Boolean,
     },
     computed: {
+        brandName() {
+            return BRAND_NAME;
+        },
         tenant: sync('scope/tenant@value'),
         project: sync('scope/project@value'),
         name: get('scope/user'),

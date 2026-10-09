@@ -1,4 +1,5 @@
 const path = require('path');
+const webpack = require('webpack');
 const MonacoWebpackPlugin = require('monaco-editor-webpack-plugin');
 // const { BundleAnalyzerPlugin } = require('webpack-bundle-analyzer')
 module.exports = function(api, opts) {
@@ -44,6 +45,11 @@ module.exports = function(api, opts) {
                 template: path.resolve(__dirname, '../template/kubecube.html'),
                 favicon: path.resolve(__dirname, '../src/kubecube/component/global/icon/logo.png'),
             }]));
+        // Brand name, shared with src/kubecube/utils/brand.js.
+        // Override at build time: KUBECUBE_BRAND_NAME="My Cloud" npm run build
+        webpackChainConfig.plugin('define-brand').use(webpack.DefinePlugin, [{
+            'process.env.KUBECUBE_BRAND_NAME': JSON.stringify(process.env.KUBECUBE_BRAND_NAME || 'Kubecube'),
+        }]);
         // webpackChainConfig.plugin('bundle-analyzer').use(BundleAnalyzerPlugin);
         return webpackChainConfig; // 一定要返回
     });

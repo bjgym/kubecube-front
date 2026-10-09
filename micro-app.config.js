@@ -10,7 +10,7 @@ module.exports = {
     },
     htmls: [{
         filename: 'index.html',
-        title: 'Kubecube',
+        title: process.env.KUBECUBE_BRAND_NAME || 'Kubecube',
         hash: true,
         template: './src/template/index.html',
     }],
