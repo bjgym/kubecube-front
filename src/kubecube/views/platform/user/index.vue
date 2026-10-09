@@ -21,12 +21,23 @@
           square
           @click="refresh"
         />
+        <u-input
+          v-model="query"
+          placeholder="请输入用户名"
+          style="width: 200px; margin-left: 8px;"
+          @keyup.enter="onSearch"
+        />
+        <u-button
+          icon="search"
+          square
+          @click="onSearch"
+        />
       </u-linear-layout>
 
       <x-request
         ref="request"
         :service="userService"
-        :params="{}"
+        :params="queryParams"
         :processor="resolver"
       >
         <template slot-scope="{ data, loading, error }">
@@ -67,7 +78,7 @@
             :count="data.total"
             :page-size="pagenation.pageSize"
             :total="calculatePages(data.total)"
-            @select="selectPage"
+            @select="selectPages"
           />
         </template>
       </x-request>
@@ -107,7 +118,7 @@ export default {
         UserUploadDialog,
     },
     metaInfo: {
-        title: '用户管理 - kubecube',
+        title: '用户管理',
     },
     filters: {
         formatStatus(val) {
@@ -122,6 +133,7 @@ export default {
     data() {
         return {
             userService: userService.getUserList,
+            query: '',
             columns: [
                 { name: 'name', title: '登录帐号' },
                 { name: 'displayName', title: '用户名' },
@@ -133,6 +145,19 @@ export default {
             ],
         };
     },
+    computed: {
+        // x-request re-requests whenever this changes, so search and paging both
+        // travel through the same params object.
+        queryParams() {
+            return {
+                params: {
+                    query: this.query,
+                    pageNum: this.pagenation.pageNum,
+                    pageSize: this.pagenation.pageSize,
+                },
+            };
+        },
+    },
     methods: {
         resolver(result) {
             const r = {
@@ -141,12 +166,24 @@ export default {
                     ...i.spec,
                     ...i.status,
                 })),
-                total: get(result, 'sum', 0),
+                // ListUsers returns `total`; `sum` does not exist, so the pager
+                // never rendered and no page change ever re-requested.
+                total: result.total || 0,
             };
             return r;
         },
         refresh() {
             this.$refs.request.request();
+        },
+        onSearch() {
+            this.pagenation.pageNum = 1;
+            this.refresh();
+        },
+        // PageMixin.selectPage only mutates pagenation and never re-requests.
+        selectPages(event) {
+            this.pagenation.pageNum = event.page;
+            this.pagenation.pageSize = event.pageSize || this.pagenation.pageSize;
+            this.refresh();
         },
         edit(user) {
             this.$refs.user.open(user);
