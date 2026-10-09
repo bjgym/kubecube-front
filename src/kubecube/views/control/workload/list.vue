@@ -592,7 +592,7 @@ export default {
                 case 'jobs':
                     return workloadService.getBatchs;
                 case 'cronjobs':
-                    return workloadService.getBatchsBeta;
+                    return workloadService.getBatchs;
                 default:
                     return workloadService.getWorkloads;
             }
@@ -606,7 +606,7 @@ export default {
                 case 'jobs':
                     return workloadService.createBatchs;
                 case 'cronjobs':
-                    return workloadService.createBatchsBeta;
+                    return workloadService.createBatchs;
                 default:
                     return null;
             }
@@ -620,7 +620,7 @@ export default {
                 case 'jobs':
                     return workloadService.getBatchInstance;
                 case 'cronjobs':
-                    return workloadService.getBatchsBetaInstance;
+                    return workloadService.getBatchInstance;
                 case 'pods':
                     return workloadService.getAPIV1Instance;
                 default:
@@ -636,7 +636,7 @@ export default {
                 case 'jobs':
                     return workloadService.deleteBatchInstance;
                 case 'cronjobs':
-                    return workloadService.deleteBatchsBetaInstance;
+                    return workloadService.deleteBatchInstance;
                 case 'pods':
                     return workloadService.deleteAPIV1Instance;
                 default:

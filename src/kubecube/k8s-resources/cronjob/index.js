@@ -40,7 +40,7 @@ export function toPlainObject(model) {
 
 export function toK8SObject(model) {
     return toWorkloadK8SObject(model)({
-        apiVersion: 'batch/v1beta1',
+        apiVersion: 'batch/v1',
         kind: 'CronJob',
         toSpecK8SObject,
     });
@@ -48,7 +48,7 @@ export function toK8SObject(model) {
 
 export function toModifyK8SObject(model) {
     return toModifyWorkloadK8SObject(model)({
-        apiVersion: 'batch/v1beta1',
+        apiVersion: 'batch/v1',
         kind: 'CronJob',
         toSpecK8SObject,
         toModifyK8SObject: toModifySpecK8SObject,

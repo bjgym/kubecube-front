@@ -113,7 +113,7 @@ export default {
                 case 'jobs':
                     return workloadService.getBatchInstance;
                 case 'cronjobs':
-                    return workloadService.getBatchsBetaInstance;
+                    return workloadService.getBatchInstance;
                 default:
                     return null;
             }
@@ -173,7 +173,7 @@ export default {
                 case 'jobs':
                     return workloadService.modifyBatchInstance;
                 case 'cronjobs':
-                    return workloadService.modifyBatchsBetaInstance;
+                    return workloadService.modifyBatchInstance;
                 default:
                     return null;
             }
@@ -187,7 +187,7 @@ export default {
                 case 'jobs':
                     return workloadService.createBatchs;
                 case 'cronjobs':
-                    return workloadService.createBatchsBeta;
+                    return workloadService.createBatchs;
                 default:
                     return null;
             }

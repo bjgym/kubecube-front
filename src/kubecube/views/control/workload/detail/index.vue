@@ -193,7 +193,7 @@ export default {
                 case 'jobs':
                     return workloadService.getBatchInstance;
                 case 'cronjobs':
-                    return workloadService.getBatchsBetaInstance;
+                    return workloadService.getBatchInstance;
                 case 'pods':
                 case 'services':
                 case 'persistentvolumeclaims':
@@ -219,7 +219,7 @@ export default {
                 case 'jobs':
                     return workloadService.deleteBatchInstance;
                 case 'cronjobs':
-                    return workloadService.deleteBatchsBetaInstance;
+                    return workloadService.deleteBatchInstance;
                 case 'pods':
                 case 'services':
                 case 'persistentvolumeclaims':
@@ -243,7 +243,7 @@ export default {
                 case 'jobs':
                     return workloadService.modifyBatchInstance;
                 case 'cronjobs':
-                    return workloadService.modifyBatchsBetaInstance;
+                    return workloadService.modifyBatchInstance;
                 case 'pods':
                 case 'services':
                 case 'persistentvolumeclaims':

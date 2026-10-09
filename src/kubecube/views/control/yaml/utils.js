@@ -22,7 +22,7 @@ export const configs = {
     },
     CronJob: {
         group: 'batch',
-        version: 'v1beta1',
+        version: 'v1',
         plural: 'cronjobs',
     },
     Job: {
