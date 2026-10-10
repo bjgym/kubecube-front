@@ -352,16 +352,23 @@ export default {
                     throw error;
                 }
             }
-            await workloadService.deleteNamespaceCRResource({
-                pathParams: {
-                    cluster: this.delNsInfo.cluster,
-                    group: 'hnc.x-k8s.io',
-                    version: 'v1alpha2',
-                    plural: 'subnamespaceanchors',
-                    namespace: `kubecube-project-${this.delNsInfo.project}`,
-                    name: this.delNsInfo.namespace,
-                },
-            });
+            // Delete the Namespace itself. HNC used to be what removed it, and
+            // the subnamespace anchor this used to delete is no longer created:
+            // the backend creates the Namespace directly, and nothing
+            // materialises one from an anchor any more.
+            try {
+                await workloadService.deleteResourceWithoutNamespace({
+                    pathParams: {
+                        cluster: this.delNsInfo.cluster,
+                        resource: 'namespaces',
+                        name: this.delNsInfo.namespace,
+                    },
+                });
+            } catch (error) {
+                if (error.reason !== 'NotFound') {
+                    throw error;
+                }
+            }
             // await cubeUltimateService.deleteNameSpace({
             //     params: omit(this.delNsInfo, [ 'isFederateMaster' ]),
             // });
