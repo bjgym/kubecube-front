@@ -62,7 +62,22 @@
             prop="tenant"
             label="租户"
             :show-overflow-tooltip="true"
-          />
+          >
+            <template slot-scope="{ row }">
+              <!-- A namespace no tenant or project owns. The platform did not
+                   create it and does not claim it, so it is shown as unmanaged
+                   rather than with an empty tenant, which would read as a fault.
+                   The backend only marks it for a platform administrator. -->
+              <el-tag
+                v-if="row.unmanaged"
+                size="mini"
+                type="info"
+              >
+                未纳管
+              </el-tag>
+              <span v-else>{{ row.tenant }}</span>
+            </template>
+          </el-table-column>
           <el-table-column
             prop="project"
             label="项目"
