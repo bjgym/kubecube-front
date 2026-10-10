@@ -1,3 +1,7 @@
+# V1.3.1
+## Build
+- build the bundle inside the image, so `docker build` no longer needs a prior `npm run build`; the builder is pinned to Node 12.18, the npm registry moves off the retired taobao mirror, and `KUBECUBE_BRAND_NAME` is a build argument
+
 # V1.3.0
 ## Bug fix
 - limiting cluster operations

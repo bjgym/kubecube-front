@@ -11,11 +11,19 @@ KubeCube-front is the front-end project of KubeCube.
 
 
 ## Quick Start
+
+The bundle is built inside the image, so no local `npm run build` is needed before it:
+
 ``` shell
-npm install
-npm run build
-docker build .
+docker build -t kubecube/frontend:dev .
 ```
+
+`make image` builds the same image for the builder's own architecture, and `make image-multi-arch` builds and pushes an amd64+arm64 manifest. `node-sass@4.14.1` publishes no arm64 binding, so the arm64 leg compiles it and needs a Python 2 toolchain the builder does not carry; the amd64 leg uses the published binding. An arm64 build therefore needs that toolchain added to the builder, or a move off `node-sass`. The product name the bundle shows is a build argument:
+
+``` shell
+docker build -t kubecube/frontend:dev --build-arg KUBECUBE_BRAND_NAME="My Cloud" .
+```
+
 Put the packaged front-end image in the container of the frontend deployment under the Kubecube-system namespace.
 
 ## For Developers

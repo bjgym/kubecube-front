@@ -1,0 +1,11 @@
+# The image builds its own bundle, so a local build output must not reach the
+# context; a local node_modules would shadow the container's dependencies.
+node_modules
+public
+public2
+dist
+.git
+.gitignore
+*.log
+.idea
+.vscode
