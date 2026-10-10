@@ -54,6 +54,7 @@ import valveMixin from 'kubecube/mixins/pipe/valve.mixin';
 import {
     setValueIfListNotPresent,
 } from 'kubecube/utils/functional';
+import { everyNamespaceOfTenant, spacesOfProject } from 'kubecube/utils/ownership';
 export async function loadNS({
     tenant,
     project,
@@ -64,10 +65,10 @@ export async function loadNS({
         pageSize: 10000,
     };
     if (tenant) {
-        params.labelSelector.push(`kubecube-tenant-${tenant.value}.tree.hnc.x-k8s.io/depth=2`);
+        params.labelSelector.push(...everyNamespaceOfTenant(tenant.value));
     }
     if (project) {
-        params.labelSelector.push(`kubecube-project-${project.value}.tree.hnc.x-k8s.io/depth=1`);
+        params.labelSelector.push(...spacesOfProject(project.value));
     }
     params.labelSelector = params.labelSelector.join(',');
     const response = await nsService.getNamespaces({

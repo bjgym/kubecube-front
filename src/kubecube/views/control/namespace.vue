@@ -157,6 +157,7 @@ import {
     resolveTemplate,
 } from 'kubecube/k8s-resources/monitor/utils.js';
 import { niceBytes } from 'kubecube/utils/functional';
+import { everyNamespaceOfTenant, spacesOfProject } from 'kubecube/utils/ownership';
 
 import valveMixin from 'kubecube/mixins/pipe/valve.mixin';
 import uAppClusterSelect from 'kubecube/component/global/header/u-app-cluster-single.vue';
@@ -244,10 +245,10 @@ export default {
                     labelSelector: [],
                 };
                 if (this.tenant) {
-                    params.labelSelector.push(`kubecube-tenant-${this.tenant}.tree.hnc.x-k8s.io/depth=2`);
+                    params.labelSelector.push(...everyNamespaceOfTenant(this.tenant));
                 }
                 if (this.project) {
-                    params.labelSelector.push(`kubecube-project-${this.project}.tree.hnc.x-k8s.io/depth=1`);
+                    params.labelSelector.push(...spacesOfProject(this.project));
                 }
                 params.labelSelector = params.labelSelector.join(',');
                 const response = await nsService.getNamespaces({

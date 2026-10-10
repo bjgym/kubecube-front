@@ -234,42 +234,6 @@ export default {
             }
             this.submitting = false;
 
-            // const subnamespaceYaml = toSubnamespaceK8SObject({
-            //     namespace,
-            //     tenant: tenant.value,
-            //     project: project.value,
-            //     scope: project.spec.namespace,
-            // });
-
-            // const quota = toResourceQuotaPK8SObject(
-            //     {
-            //         cluster: cluster.value,
-            //         namespace,
-            //         tenant: tenant.value,
-            //         project: project.value,
-            //     },
-            //     this.model.resource
-            // );
-            // await workloadService.createNamespaceCRResource({
-            //     pathParams: {
-            //         cluster: cluster.value,
-            //         group: 'hnc.x-k8s.io',
-            //         version: 'v1alpha2',
-            //         plural: 'subnamespaceanchors',
-            //         namespace: project.spec.namespace,
-            //     },
-            //     data: subnamespaceYaml,
-            // });
-
-            // await workloadService.createAPIV1Instance({
-            //     pathParams: {
-            //         cluster: cluster.value,
-            //         namespace,
-            //         resource: 'resourcequotas',
-            //     },
-            //     data: quota,
-            // });
-
         },
     },
 };

@@ -177,6 +177,7 @@ import { dimensions, scopesChoice, scopesContent } from './constance';
 import clusterService from 'kubecube/services/cluster';
 import k8sResourceService from 'kubecube/services/k8s-resource';
 import nsService from 'kubecube/services/namespace';
+import { everyNamespaceOfTenant, spacesOfProject } from 'kubecube/utils/ownership';
 import { get } from 'vuex-pathify';
 const DEFAULT_VALUE = '';
 const DEFAULT_OPERATOR = '>';
@@ -277,10 +278,10 @@ export default {
                 pageSize: 10000,
             };
             if (this.tenant) {
-                params.labelSelector.push(`kubecube-tenant-${this.tenant.value}.tree.hnc.x-k8s.io/depth=2`);
+                params.labelSelector.push(...everyNamespaceOfTenant(this.tenant.value));
             }
             if (this.project) {
-                params.labelSelector.push(`kubecube-project-${this.project.value}.tree.hnc.x-k8s.io/depth=1`);
+                params.labelSelector.push(...spacesOfProject(this.project.value));
             }
             params.labelSelector = params.labelSelector.join(',');
             try {
