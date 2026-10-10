@@ -3,6 +3,7 @@
     :data="model"
     :curr-level-text="title"
     :disabled="disabled"
+    :disabled-keys="disabledKeys"
   />
 </template>
 
@@ -25,6 +26,11 @@ export default {
         },
         title: String,
         disabled: Boolean,
+        // 这些项在当前层级不可授予：仍然显示，但勾不动。
+        disabledKeys: {
+            type: Array,
+            default: () => [],
+        },
     },
     computed: {
         model: {

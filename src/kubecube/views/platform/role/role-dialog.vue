@@ -81,10 +81,6 @@
 import { Modal } from '@micro-app/common/mixins';
 import { get } from 'lodash';
 import userService from 'kubecube/services/user';
-import roleService from 'kubecube/services/role-binding';
-import {
-    toK8SObject as toRoleK8SObject,
-} from 'kubecube/k8s-resources/role';
 
 export default {
     mixins: [ Modal ],
@@ -131,24 +127,41 @@ export default {
         },
 
         async submit() {
-            let rules = [];
-
+            let items = {};
 
             if (this.mode === 'extend') {
-                const response = await userService.getAuthRole({
-                    params: {
-                        level: this.identity,
-                    } });
-                const adminRule = (response.items || []).find(i => i.metadata.name === `${this.identity}-admin`);
-                rules = get(adminRule, 'rules') || [];
+                // 继承已有角色：读它的 items 再提交。规则仍然由服务端从目录
+                // 派生，客户端只是把一份勾选结果搬过来。
+                const answer = await userService.getRoleAuthItems({
+                    pathParams: {
+                        name: `${this.identity}-admin`,
+                    },
+                });
+                items = get(answer, 'items', {});
             }
 
-            await roleService.createRole({
-                data: toRoleK8SObject(this.name, this.mode, this.identity, rules),
-            });
-
-            this.$emit('refresh');
-            this.close();
+            try {
+                await userService.saveRoleAuthItems({
+                    pathParams: {
+                        name: this.name,
+                    },
+                    data: {
+                        scope: this.identity,
+                        items,
+                    },
+                });
+                this.$message({
+                    message: '角色已创建',
+                    type: 'success',
+                });
+                this.$emit('refresh');
+                this.close();
+            } catch (e) {
+                this.$message({
+                    message: get(e, 'response.data.message') || '角色创建失败',
+                    type: 'error',
+                });
+            }
         },
     },
 };

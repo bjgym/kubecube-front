@@ -3,7 +3,7 @@
     <div :class="$style.line">
       <u-checkbox
         v-model="currentState"
-        :disabled="disabled"
+        :disabled="branchDisabled"
       />
       <u-text>{{ currLevelText }}</u-text>
     </div>
@@ -12,6 +12,7 @@
         <kube-checkbox-tree
           :key="k"
           :disabled="disabled"
+          :disabled-keys="disabledKeys"
           :data="data[k]"
           :curr-level-text="k"
           :data-key="`${dataKey ? `${dataKey}.` : ''}${k}`"
@@ -35,10 +36,19 @@ export default {
             default: '',
         },
         disabled: Boolean,
+        // 以本层的名字匹配：某一项在当前层级不可授予时，它仍然显示，
+        // 但勾不动——而不是从列表里消失。
+        disabledKeys: {
+            type: Array,
+            default: () => [],
+        },
     },
     computed: {
         keys() {
             return Object.keys(this.data);
+        },
+        branchDisabled() {
+            return this.disabled || this.disabledKeys.includes(this.currLevelText);
         },
         currentState: {
             get() {

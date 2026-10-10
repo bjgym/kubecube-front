@@ -23,17 +23,9 @@ const service = Service({
             method: 'delete',
         },
 
-        createRole: {
-            url: '/apis/rbac.authorization.k8s.io/v1/clusterroles',
-            method: 'post',
-        },
-        patchRole: {
-            template: '/apis/rbac.authorization.k8s.io/v1/clusterroles/{name}',
-            method: 'patch',
-            headers: {
-                'Content-Type': 'application/strategic-merge-patch+json',
-            },
-        },
+        // createRole 与 patchRole 曾经在这里，直接向集群写 ClusterRole 的
+        // rules。规则现在只由服务端从权限目录派生，客户端提交的是 items，
+        // 所以这两条路径被删掉，而不是留着等下一次被误用。
         // createScope: {
         //     template: '/apis/tenant.kubecube.io/v1/{scope}',
         //     method: 'post',

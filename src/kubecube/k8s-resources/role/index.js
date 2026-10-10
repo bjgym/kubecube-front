@@ -1,120 +1,49 @@
-import { get, uniq } from 'lodash';
-import {
-    toPlainObject as toConfigPlainObject,
-    toK8SObject as toConfigK8SObject,
-} from '../base/config';
-import { getFromModel } from '../base/utils';
-import {
-    RESOURCE_AUTH_MAP,
-    RESOURCE_RIGHTS,
-    RESOURCE_CONVERT_AUTH_MAP,
-} from 'kubecube/utils/constance';
-const resource_mapping = {};
-function resolveRules(rules, ruleTemplate) {
-    const isTemplate = typeof ruleTemplate === 'boolean' && ruleTemplate;
+import { get } from 'lodash';
+import { RESOURCE_RIGHTS } from 'kubecube/utils/constance';
 
-    const resolvedRules = rules.map(r => {
-        if (isTemplate) {
-            r.resources.forEach(r => {
-                const key = get(r.split('/'), '[0]');
-                if (!resource_mapping[key]) resource_mapping[key] = [];
-                if (!resource_mapping[key].includes(r)) resource_mapping[key].push(r);
-            });
-        }
-        return {
-            resources: uniq(r.resources.map(resource => get(resource.split('/'), '[0]'))),
-            rights: uniq(r.verbs.map(right => RESOURCE_AUTH_MAP[right])),
+// 目录是"有哪些项"的唯一来源。角色自己持有什么只决定哪些框被勾上，
+// 永远不决定有哪些框——否则角色就成了它自己权限的定义者。
+export function toTreeModel(catalogue, items) {
+    const model = {};
+    Object.keys(get(catalogue, 'items', {})).forEach(item => {
+        model[item] = {
+            [RESOURCE_RIGHTS.READ]: false,
+            [RESOURCE_RIGHTS.WRITE]: false,
         };
     });
-    console.log(resource_mapping);
-    const obj = {};
-    resolvedRules.forEach(rule => {
-        const { resources, rights } = rule;
-        const read = rights.includes(RESOURCE_RIGHTS.READ);
-        const write = rights.includes(RESOURCE_RIGHTS.WRITE);
-        resources.forEach(r => {
-            if (!obj[r]) {
-                obj[r] = {
-                    [RESOURCE_RIGHTS.READ]: false,
-                    [RESOURCE_RIGHTS.WRITE]: false,
-                };
-            }
-            obj[r][RESOURCE_RIGHTS.READ] = (obj[r][RESOURCE_RIGHTS.READ] || read);
-            obj[r][RESOURCE_RIGHTS.WRITE] = (obj[r][RESOURCE_RIGHTS.READ] || write);
-        });
+
+    Object.keys(items || {}).forEach(item => {
+        if (!model[item]) return;
+        const verb = items[item];
+        model[item][RESOURCE_RIGHTS.READ] = verb === 'read' || verb === 'all';
+        model[item][RESOURCE_RIGHTS.WRITE] = verb === 'write' || verb === 'all';
     });
-    console.log(!isTemplate && ruleTemplate);
-    if (!isTemplate && ruleTemplate) {
-        Object.keys(ruleTemplate).forEach(r => {
-            if (!obj[r]) {
-                obj[r] = {
-                    [RESOURCE_RIGHTS.READ]: false,
-                    [RESOURCE_RIGHTS.WRITE]: false,
-                };
-            }
-        });
-    }
 
-    return obj;
+    return model;
 }
 
-function refactRules(rules) {
-    const obj = [];
-    Object.keys(rules).forEach(r => {
-        const currule = rules[r];
-        if (currule[RESOURCE_RIGHTS.READ] || currule[RESOURCE_RIGHTS.WRITE]) {
-            let verbs = currule[RESOURCE_RIGHTS.READ] ? RESOURCE_CONVERT_AUTH_MAP[RESOURCE_RIGHTS.READ] : [];
-            verbs = verbs.concat(currule[RESOURCE_RIGHTS.WRITE] ? RESOURCE_CONVERT_AUTH_MAP[RESOURCE_RIGHTS.WRITE] : []);
-            obj.push({
-                resources: resource_mapping[r],
-                apiGroups: [ '*' ],
-                verbs,
-            });
-        }
-
+// 提交的是勾选结果，不是规则：规则由服务端从目录派生，客户端无从发明。
+//
+// disabledKeys 里的项不提交：置灰不是使用者做的选择，而是"本层级不可授予"，
+// 提交上去只会让整个请求被拒绝（服务端不做部分应用）。跳过它，角色就收敛到
+// 本层级允许的范围内，而不是卡在一条谁也存不下去的记录上。
+export function toItems(model, disabledKeys = []) {
+    const items = {};
+    Object.keys(model || {}).forEach(item => {
+        if (disabledKeys.includes(item)) return;
+        const read = get(model[item], RESOURCE_RIGHTS.READ);
+        const write = get(model[item], RESOURCE_RIGHTS.WRITE);
+        if (read && write) items[item] = 'all';
+        else if (read) items[item] = 'read';
+        else if (write) items[item] = 'write';
     });
-    return obj;
+    return items;
 }
 
-export function toPlainObject(model, ruleTemplate) {
-    const obj = toConfigPlainObject(model);
-    const g = getFromModel(model);
-    const rules = resolveRules(g('rules') || [], ruleTemplate);
-    return {
-        ...obj,
-        rules,
-    };
-}
-
-export function toK8SObject(name, mode, identity, rules) {
-    const obj = toConfigK8SObject(
-        'rbac.authorization.k8s.io/v1',
-        'ClusterRole',
-        {
-            metadata: {
-                name,
-                labels: [
-                    { key: 'kubecube.io/rbac', value: 'true' },
-                    { key: 'kubecube.io/role', value: identity },
-                ],
-                annotations: [
-                    { key: 'kubecube.io/sync', value: 'true' },
-                ],
-            },
-        }
-    );
-
-    return {
-        ...obj,
-        rules,
-    };
-}
-
-
-export function patchK8SObject(model) {
-    const rules = refactRules(model.rules);
-    console.log(rules);
-    return {
-        rules,
-    };
+// 当前层级不允许授予的项：界面上置灰，服务端也会拒绝。
+export function ungrantableItems(catalogue, level) {
+    return Object.keys(get(catalogue, 'items', {})).filter(item => {
+        const levels = get(catalogue, [ 'items', item, 'levels' ], []);
+        return !levels.includes(level);
+    });
 }

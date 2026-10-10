@@ -138,22 +138,11 @@ export const SECRET_TYPES_ENUM = {
     DockerConfigJson: 'kubernetes.io/dockerconfigjson',
 };
 
+// 勾选框的两片叶子。规则与动词的对应关系不再放在前端：目录由服务端拥有，
+// 规则也由服务端从勾选结果派生，前端只提交 read/write/all。
 export const RESOURCE_RIGHTS = {
     READ: 'READ',
     WRITE: 'WRITE',
-};
-export const RESOURCE_AUTH_MAP = {
-    get: RESOURCE_RIGHTS.READ,
-    list: RESOURCE_RIGHTS.READ,
-    watch: RESOURCE_RIGHTS.READ,
-    create: RESOURCE_RIGHTS.WRITE,
-    update: RESOURCE_RIGHTS.WRITE,
-    delete: RESOURCE_RIGHTS.WRITE,
-};
-
-export const RESOURCE_CONVERT_AUTH_MAP = {
-    READ: [ 'get', 'list', 'watch' ],
-    WRITE: [ 'create', 'update', 'delete' ],
 };
 
 

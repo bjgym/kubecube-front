@@ -71,6 +71,21 @@ const userService = Service({
             url: '/authorization/clusterroles',
             method: 'get',
         },
+        // 权限目录：有哪些项可授予、各自可在哪些层级授予。列表来自服务端，
+        // 控制台只负责渲染。
+        getAuthCatalogue: {
+            url: '/authorization/catalogue',
+            method: 'get',
+        },
+        // 一个角色持有哪些项（勾选态）。写入的是 items，不是 rules。
+        getRoleAuthItems: {
+            template: '/authorization/roles/{name}',
+            method: 'get',
+        },
+        saveRoleAuthItems: {
+            template: '/authorization/roles/{name}',
+            method: 'put',
+        },
         getUserKey: {
             url: '/key',
             method: 'get',
