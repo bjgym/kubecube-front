@@ -220,7 +220,7 @@ export default {
                 await userService.createNSQuota({
                     data: {
                         cluster: cluster.value,
-                        subNamespaceAnchor: subnamespaceYaml,
+                        space: subnamespaceYaml,
                         resourceQuota: quotaYaml,
                     },
                 });

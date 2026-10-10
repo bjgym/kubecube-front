@@ -1,4 +1,4 @@
-// The shape of the subNamespaceAnchor field of the create-namespace request.
+// The shape of the space field of the create-namespace request.
 //
 // The backend reads only the labels, the name and the namespace out of it and
 // builds the Namespace itself, so this is a KubeCube request body that happens
