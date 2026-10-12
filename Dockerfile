@@ -6,7 +6,15 @@
 # not in the repository (config/vue.config.js sets outputDir to 'public'), so a
 # single-stage Dockerfile that copies it can only be built on a machine that has
 # already run `npm run build`.
-FROM node:12.18.0 AS builder
+#
+# The builder stage is pinned to $BUILDPLATFORM so a multi-arch build (buildx)
+# always runs node on the docker host's architecture: node-sass v4.14.1
+# publishes a prebuilt binding for linux/amd64 only, and compiling it on arm64
+# needs a Python 2 toolchain this image does not carry. The produced bundle is
+# plain static files with no architecture of its own, so the final stage can
+# safely be any platform's nginx. Build frontend images with buildx from an
+# amd64 docker host; a native arm64 node build will fail.
+FROM --platform=$BUILDPLATFORM node:12.18.0 AS builder
 
 WORKDIR /app
 
