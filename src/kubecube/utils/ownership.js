@@ -5,7 +5,10 @@
 // the HNC depth labels by hand, which meant the tree's internal spelling was
 // part of the UI.
 //
-//   kubecube.io/namespace-owner   the authority: tenant:<name> or project:<name>
+//   kubecube.io/namespace-owner   the authority: tenant-<name> or project-<name>
+//                                 (a label value cannot carry ':', so the
+//                                 separator is '-', matching the
+//                                 kubecube-tenant- / kubecube-project- names)
 //   kubecube.io/namespace-tenant  the tenant a namespace sits in
 //   kubecube.io/namespace-level   which level it is: tenant, project or space
 //
@@ -35,7 +38,7 @@ export function everyNamespaceOfTenant(tenant) {
 // namespace, which is owned by the same project but is not a space.
 export function spacesOfProject(project) {
     return [
-        `${OWNER_LABEL}=project:${project}`,
+        `${OWNER_LABEL}=project-${project}`,
         `${OWNER_LEVEL_LABEL}=${LEVEL_SPACE}`,
     ];
 }
