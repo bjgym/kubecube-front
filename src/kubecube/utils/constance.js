@@ -172,6 +172,12 @@ export const CLUSTER_NETWORK_TYPE_MAP = {
     // 'openshift-sdn': {
     //     text: 'Openshift SDN',
     // },
+    // Cilium is the CNI the installer installs by default; calico stays because
+    // a member cluster is free to run it, and the dialog falls back to a free
+    // text field for anything not listed here.
+    cilium: {
+        text: 'Cilium',
+    },
     calico: {
         text: 'Calico',
     },

@@ -3,6 +3,7 @@
 - build the bundle inside the image, so `docker build` no longer needs a prior `npm run build`; the builder is pinned to Node 12.18, the npm registry moves off the retired taobao mirror, and `KUBECUBE_BRAND_NAME` is a build argument
 ## Bug fix
 - the project's namespace selector asks for `project-<name>`, following the platform's ownership label value, which cannot carry the `:` it used to
+- a new cluster's network type defaults to `cilium`, matching the backend and the CNI the installer installs, and Cilium joins the network type list. Calico stays in the list: a member cluster is free to run it, and the dialog still falls back to a free text field for anything unlisted
 
 # V1.3.0
 ## Bug fix

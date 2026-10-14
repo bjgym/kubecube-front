@@ -156,7 +156,10 @@ import { get } from 'vuex-pathify';
 const getDefaultCluster = () => ({
     clusterDisplayName: '',
     clusterName: '',
-    networkType: 'calico',
+    // The CNI the installer installs by default, matching the backend's own
+    // default for a cluster record. It is metadata: onboarding reads a member's
+    // networking from the cluster itself.
+    networkType: 'cilium',
     description: '',
     kubeConfig: '',
 });
