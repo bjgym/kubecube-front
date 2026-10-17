@@ -8,19 +8,24 @@
 # already run `npm run build`.
 #
 # The builder stage is pinned to $BUILDPLATFORM so a multi-arch build (buildx)
-# always runs node on the docker host's architecture: node-sass v4.14.1
-# publishes a prebuilt binding for linux/amd64 only, and compiling it on arm64
-# needs a Python 2 toolchain this image does not carry. The produced bundle is
-# plain static files with no architecture of its own, so the final stage can
-# safely be any platform's nginx. Build frontend images with buildx from an
-# amd64 docker host; a native arm64 node build will fail.
+# always runs node on the docker host's architecture. node-sass v4.14.1 publishes
+# no prebuilt binding for linux/arm64, so an arm64 build compiles it from source
+# instead — which was measured to work in this image and takes about four minutes
+# on a four-core arm64 VM (node:12.18.0 carries the toolchain node-gyp needs;
+# SASS_BINARY_SITE below has no arm64 binding to fetch, so the fallback is the
+# source build). The produced bundle is plain static files with no architecture
+# of its own, so the final stage can safely be any platform's nginx.
+#
+# Pinning to the build platform therefore stays: it keeps the common case (an
+# amd64 docker host) from emulating node, and an arm64 host builds natively and
+# only pays the compile once, in the image layer cache.
 FROM --platform=$BUILDPLATFORM node:12.18.0 AS builder
 
 WORKDIR /app
 
-# node-sass downloads its prebuilt binding from GitHub unless told otherwise.
-# v4.14.1 publishes bindings for linux/amd64 only, so an arm64 build compiles
-# node-sass instead and needs a Python 2 toolchain this image does not carry.
+# node-sass downloads its prebuilt binding unless told otherwise. There is none
+# for linux/arm64, so an arm64 build compiles it; the site below is still worth
+# setting because it makes the amd64 path independent of GitHub.
 ARG SASS_BINARY_SITE=https://registry.npmmirror.com/-/binary/node-sass
 ENV SASS_BINARY_SITE=${SASS_BINARY_SITE}
 
