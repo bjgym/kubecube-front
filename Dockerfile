@@ -19,6 +19,14 @@
 # Pinning to the build platform therefore stays: it keeps the common case (an
 # amd64 docker host) from emulating node, and an arm64 host builds natively and
 # only pays the compile once, in the image layer cache.
+#
+# It is declared, not merely used, and that is not decoration: an undeclared ARG
+# is empty, an empty platform is a parse error, and the build fails before its
+# first layer. buildx is the only caller that fills this variable in by itself —
+# with the plain builder every build died on `failed to parse platform : "" is an
+# invalid OS component`, so a caller using it has to pass the argument, as the
+# offline bundle's builder does.
+ARG BUILDPLATFORM
 FROM --platform=$BUILDPLATFORM node:12.18.0 AS builder
 
 WORKDIR /app
@@ -42,5 +50,7 @@ ENV KUBECUBE_BRAND_NAME=${KUBECUBE_BRAND_NAME}
 
 RUN npm run build
 
-FROM nginx
+# Pinned: `nginx` on its own is whatever :latest happens to be that week, which
+# is not something a release can reproduce.
+FROM nginx:1.27
 COPY --from=builder /app/public /usr/share/nginx/html/public
