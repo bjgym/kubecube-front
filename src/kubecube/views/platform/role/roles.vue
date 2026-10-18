@@ -46,14 +46,27 @@
                 title="资源权限"
               />
             </div>
-            <u-button
-              color="primary"
-              :class="$style.modifyBtn"
-              :disabled="!isPlatform || isBuiltinRole"
-              @click="modifyRole"
+            <div :class="$style.actions">
+              <u-button
+                color="primary"
+                :disabled="!isPlatform || isBuiltin"
+                @click="modifyRole"
+              >
+                修改
+              </u-button>
+              <u-button
+                :disabled="!canDelete"
+                @click="deleteRole"
+              >
+                删除
+              </u-button>
+            </div>
+            <div
+              v-if="deleteHint"
+              :class="$style.deleteHint"
             >
-              修改
-            </u-button>
+              {{ deleteHint }}
+            </div>
           </template>
         </div>
       </template>
@@ -108,6 +121,12 @@ export default {
             service: userService.getAuthRole,
             identities: [],
             curIdent: null,
+            // 服务端对所选角色的回答：持有哪些项、是否内置、有多少用户绑定。
+            // 删除能否点，以及为什么不能点，都由它决定，前端不再自己猜。
+            roleInfo: null,
+            // 读取中的角色信息还不是"读不到"，两者要分开，否则切换角色时会闪出
+            // 一句读取失败。
+            roleInfoLoading: false,
             // 有哪些项可授予，来自服务端；角色持有什么只决定勾选态。
             catalogue: { items: {} },
             rules: {},
@@ -134,6 +153,24 @@ export default {
         },
         isBuiltinRole() {
             return !!this.curIdent && this.curIdent.metadata.name === `${this.identity}-admin`;
+        },
+        // 服务端按 aggregationRule 判定内置角色，读到之前先用名字兜底。
+        isBuiltin() {
+            return this.roleInfo ? this.roleInfo.builtin : this.isBuiltinRole;
+        },
+        canDelete() {
+            // 读不到角色信息时不放开删除，宁可不给点，也不让人点一个服务端会
+            // 拒绝的按钮。
+            return this.isPlatform && !this.isBuiltin && !!this.roleInfo && this.roleInfo.holders === 0;
+        },
+        deleteHint() {
+            if (this.isBuiltin) return '';
+            if (this.roleInfoLoading) return '';
+            if (!this.roleInfo) return '角色信息读取失败，暂时无法删除';
+            if (this.roleInfo.holders > 0) {
+                return `该角色已被 ${this.roleInfo.holders} 个用户使用，无法删除`;
+            }
+            return '';
         },
         ungrantable() {
             return ungrantableItems(this.catalogue, this.identity);
@@ -180,9 +217,12 @@ export default {
             const chosen = this.identities.find(i => i.metadata.name === name);
             if (!chosen) return;
             this.curIdent = chosen;
+            this.roleInfo = null;
+            this.roleInfoLoading = true;
             this.rules = toTreeModel(this.catalogue, {});
             try {
                 const answer = await userService.getRoleAuthItems({ pathParams: { name } });
+                this.roleInfo = answer;
                 this.rules = toTreeModel(this.catalogue, getFunc(answer, 'items', {}));
             } catch (e) {
                 // 读不到勾选态时说明原因，而不是显示一个"全未授予"的假象。
@@ -190,6 +230,8 @@ export default {
                     message: `${name} 的权限读取失败`,
                     type: 'error',
                 });
+            } finally {
+                this.roleInfoLoading = false;
             }
         },
         addRole() {
@@ -218,6 +260,32 @@ export default {
                     type: 'error',
                 });
             }
+        },
+        deleteRole() {
+            const name = this.curIdent.metadata.name;
+            this.$confirm({
+                title: '删除',
+                content: `确认要删除角色 ${name} 吗？删除后无法恢复。`,
+                ok: async () => {
+                    try {
+                        await userService.deleteRoleAuthItems({
+                            pathParams: { name },
+                        });
+                        this.$message({
+                            message: '角色已删除',
+                            type: 'success',
+                        });
+                        this.refresh();
+                    } catch (e) {
+                        // 删除失败时角色还在页面上，把服务端的原因说出来。服务层
+                        // 抛出的是响应体本身，所以先读 message。
+                        this.$message({
+                            message: getFunc(e, 'message') || getFunc(e, 'response.data.message') || '角色删除失败',
+                            type: 'error',
+                        });
+                    }
+                },
+            });
         },
     },
 };
@@ -255,9 +323,21 @@ export default {
     overflow: scroll;
     padding: 10px;
 }
-.modifyBtn{
+.actions{
     position: absolute;
     right: 20px;
     top: 20px;
+    display: flex;
+    align-items: center;
+}
+.actions > * + *{
+    margin-left: 10px;
+}
+.deleteHint{
+    position: absolute;
+    right: 20px;
+    top: 60px;
+    color: #FF4D4F;
+    font-size: 12px;
 }
 </style>

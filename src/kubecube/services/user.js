@@ -86,6 +86,12 @@ const userService = Service({
             template: '/authorization/roles/{name}',
             method: 'put',
         },
+        // 删除一个自定义角色。服务端只允许删除内置之外、且没有用户绑定的角色，
+        // 其余情况返回带原因的错误。
+        deleteRoleAuthItems: {
+            template: '/authorization/roles/{name}',
+            method: 'delete',
+        },
         getUserKey: {
             url: '/key',
             method: 'get',
