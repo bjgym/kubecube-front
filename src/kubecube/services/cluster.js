@@ -35,6 +35,13 @@ const service = Service({
             method: 'get',
             url: '/subnamespaces',
         },
+        // Take an existing unmanaged namespace under management. It is not
+        // /clusters/nsquota, which creates the namespace, because onboarding one
+        // that already exists must not delete it on failure.
+        onboardNamespace: {
+            method: 'post',
+            url: '/nsquota/onboard',
+        },
         addCluster: {
             method: 'post',
             url: '/add',

@@ -137,7 +137,17 @@
           >
             <template slot-scope="{ row }">
               <qz-link-group max="3">
+                <!-- A namespace no tenant or project owns has no quota to edit
+                     (its name is built from a tenant and a project it does not
+                     have) and no space to delete, so it is offered the one
+                     action that applies: taking it under management. -->
                 <el-link
+                  v-if="row.unmanaged"
+                  type="primary"
+                  @click="onboardItem(row)"
+                >纳管</el-link>
+                <el-link
+                  v-if="!row.unmanaged"
                   :disabled="!row.resourceQuato && !row.nodeResourceQuato && !row.colocationResourceQuato"
                   type="primary"
                   @click="editItem(row)"
@@ -146,14 +156,14 @@
                   type="primary"
                   @click="editMetadata(row)"
                 >修改元信息</el-link>
-                <el-tooltip v-if="row.isFederateMember" class="item" effect="dark" content="此空间为联邦模式，删除管控集群的联邦空间时会一起删除该空间" placement="left">
+                <el-tooltip v-if="row.isFederateMember && !row.unmanaged" class="item" effect="dark" content="此空间为联邦模式，删除管控集群的联邦空间时会一起删除该空间" placement="left">
                   <el-link
                     type="primary"
                     disabled
                   >删除</el-link>
                 </el-tooltip>
                 <el-link
-                  v-else
+                  v-else-if="!row.unmanaged"
                   type="primary"
                   @click="deleteItem(row)"
                 >删除</el-link>
@@ -165,6 +175,10 @@
     </x-request>
     <ns-quota-dialog
       ref="nsquotadialog"
+      @refresh="onRefresh"
+    />
+    <ns-onboard-dialog
+      ref="nsonboarddialog"
       @refresh="onRefresh"
     />
     <clusterInfoDialog
@@ -199,6 +213,7 @@
 import clusterService from 'kubecube/services/cluster';
 import workloadService from 'kubecube/services/k8s-resource';
 import nsQuotaDialog from './ns-quota-dialog.vue';
+import nsOnboardDialog from './ns-onboard-dialog.vue';
 import { unitConvertMemory, unitConvertCPU } from 'kubecube/utils/functional';
 import clusterInfoDialog from './clusterInfoDialog.vue';
 import kubeTenantSelectMultiple from 'kubecube/component/global/common/kube-tenant-select-multiple.vue';
@@ -209,6 +224,7 @@ export default {
     },
     components: {
         nsQuotaDialog,
+        nsOnboardDialog,
         clusterInfoDialog,
         kubeTenantSelectMultiple,
         nsMetadataDialog,
@@ -323,6 +339,9 @@ export default {
         },
         editItem(item) {
             this.$refs.nsquotadialog.open(item);
+        },
+        onboardItem(item) {
+            this.$refs.nsonboarddialog.open(item);
         },
         deleteItem(item) {
             this.delLoading = false;
