@@ -3,6 +3,9 @@
     <!-- <u-info-list-group :title="`${title} 监控`" /> -->
     <div style="margin-bottom: 20px">
       <i v-if="loading" class="el-icon-loading" style="font-size: 24px"/>
+      <div v-else-if="unavailable">
+        监控未启用：该集群未安装监控组件（Prometheus / Thanos），没有可展示的监控面板。
+      </div>
       <div v-else-if="rows.length === 0">
         暂无监控项
       </div>
@@ -177,6 +180,11 @@ export default {
             title: '',
 
             loading: false,
+            // Set when the dashboard definitions cannot be read, which is what
+            // happens on a cluster with no monitoring stack. Distinct from an
+            // empty `rows`: one is "nothing to show yet", the other is "this
+            // platform has no monitoring".
+            unavailable: false,
             variables: [],
             pipeSeq: null,
             variableSelected: {},
@@ -263,23 +271,46 @@ export default {
         },
         async load() {
             this.loading = true;
-            const response = await monitorService.getInnerDashboards({
-                pathParams: {
-                    resource: this.resource,
-                    cluster: this.controlClusterList[0].clusterName,
-                },
-            });
+            this.unavailable = false;
+            try {
+                // controlClusterList is filled asynchronously. Reading [0] of an
+                // empty list threw, and the page then kept its spinner and
+                // showed a generic network-error toast rather than saying what
+                // was missing.
+                const first = getFunc(this.controlClusterList, '[0]', null);
+                if (!first) {
+                    this.unavailable = true;
+                    return;
+                }
 
-            const resolved = toMonitorPlainObject(response);
-            this.title = resolved.spec.title;
-            this.variables = resolved.spec.variables || [];
-            this.rows = resolved.spec.rows || [];
-            this.selectshowable = resolved.spec.selectshowable
-            this.pipeSeq = this.variables.map(v => v.name).join(' > ');
-            if (this.variables.length === 0) {
-                this.pipeLoading = false;
+                const response = await monitorService.getInnerDashboards({
+                    pathParams: {
+                        resource: this.resource,
+                        cluster: first.clusterName,
+                    },
+                });
+
+                const resolved = toMonitorPlainObject(response);
+                this.title = resolved.spec.title;
+                this.variables = resolved.spec.variables || [];
+                this.rows = resolved.spec.rows || [];
+                this.selectshowable = resolved.spec.selectshowable
+                this.pipeSeq = this.variables.map(v => v.name).join(' > ');
+                if (this.variables.length === 0) {
+                    this.pipeLoading = false;
+                }
+            } catch (err) {
+                // The dashboard definitions live in the monitoring chart, so
+                // without it this call 404s. The rejection used to escape
+                // unhandled: `loading` stayed true, the spinner below never
+                // stopped, and nothing said monitoring was absent. That is the
+                // state the offline install ships in, because the installer
+                // turns the monitoring hotplug off.
+                console.log(err);
+                this.unavailable = true;
+            } finally {
+                this.loading = false;
             }
-            this.loading = false;
         },
         async resolveRequest(valve) {
             const name = valve.name;

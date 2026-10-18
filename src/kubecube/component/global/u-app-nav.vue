@@ -22,6 +22,7 @@
         <u-sidebar-divider />
 
         <u-sidebar-group
+          v-if="monitoringFeatures"
           expanded
           class="m-sidebar-group"
         >
@@ -138,7 +139,7 @@
           </u-sidebar-item>
         </u-sidebar-group>
 
-        <u-sidebar-group class="m-sidebar-group">
+        <u-sidebar-group v-if="monitoringFeatures" class="m-sidebar-group">
           <span slot="title"><u-icons name="config" />告警</span>
           <u-sidebar-item
             :to="{ path: '/control/PrometheusRule' }"
@@ -175,6 +176,12 @@ export default {
         namespace: sync('scope/namespace'),
         cluster: sync('scope/cluster'),
         logseerFeatures: get('feature/features@logseer'),
+        // 资源监控 and 告警 read the monitoring chart's Dashboard CRs,
+        // monitoring.coreos.com CRDs and its Thanos query API. That hotplug is
+        // switched off by the offline installer, and the flag was already being
+        // fetched into this store and read by nothing, so the entries led to
+        // pages that could not load. Same pattern as logseer above.
+        monitoringFeatures: get('feature/features@kubecube-monitoring'),
         query: get('query'),
         // dashbo{ title: 'specialTerms.Dashboard', to: this.makeRoute("/dashboard"), icon: 'mdi-view-dashboard' },
         workloads() {

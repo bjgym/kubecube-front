@@ -173,6 +173,24 @@ const defaultOption = {
     theme: 'lightvs',
     automaticLayout: true,
 };
+
+// A stream is one or more documents separated by a `---` line. The editor has
+// always been able to hold one, and the deploy API has always accepted many —
+// it binds {objects:[...]} and loops over them — so this is the piece that was
+// missing between the two.
+//
+// It throws on a document that does not parse, which is what the editor's
+// validation wants; `yamljs`, used below for output, stops at the first document
+// and cannot validate a stream.
+//
+// Empty documents are dropped rather than sent: a trailing `---` or a
+// comment-only document is not a resource, and the API would reject it.
+function parseDocuments(text) {
+    const docs = YAML.parseAllDocuments(text);
+    const errors = docs.reduce((acc, doc) => acc.concat(doc.errors || []), []);
+    if (errors.length) throw errors[0];
+    return docs.map(doc => doc.toJS()).filter(doc => doc !== null && doc !== undefined);
+}
 export default {
     mixins: [ Modal ],
     data() {
@@ -246,19 +264,20 @@ export default {
             }
             this.validateTimeoutId = window.setTimeout(() => {
                 this.yamlContent = value;
-                try {
                 // 重置
-                    this.yamlErrorTip = '';
-                    yamljs.parse(value);
-                } catch (err) {
-                    console.log(err);
-                    // 二次校验
-                    try {
-                        YAML.parse(value);
-                    } catch (e) {
-                        const { parsedLine, snippet } = err;
-                        this.yamlErrorTip = `第${parsedLine}行解析错误："${snippet}"`;
-                    }
+                this.yamlErrorTip = '';
+                try {
+                    // The stream parser, not yamljs: a multi-document buffer is
+                    // valid here, and yamljs reports it as an error.
+                    parseDocuments(value);
+                } catch (e) {
+                    console.log(e);
+                    // yamljs carries parsedLine/snippet; the stream parser
+                    // carries a message. Show whichever the error has.
+                    const { parsedLine, snippet } = e;
+                    this.yamlErrorTip = parsedLine
+                        ? `第${parsedLine}行解析错误："${snippet}"`
+                        : (e.message || 'YAML 解析失败');
                 }
             }, 300);
         },
@@ -364,12 +383,21 @@ export default {
             this.commitLoading = true;
             try {
                 this.yamlErrorTip = '';
-                // let content = this.editor.getModel().getValue();
-                let content = this.yamlContent;
+                const content = this.yamlContent;
 
-                // content = yamljs.parse(content);
-                content = YAML.parse(content);
+                const docs = parseDocuments(content);
+                if (docs.length === 0) {
+                    this.yamlErrorTip = '没有可部署的内容';
+                    this.commitLoading = false;
+                    return;
+                }
 
+                // The body has to be {objects:[...]}. It used to be the bare
+                // object, which the API binds successfully into a struct with an
+                // empty Objects slice, loops over zero times and answers with
+                // success — so every deploy from this dialog reported success
+                // and created nothing. Sending one document inside the array is
+                // the same wire shape as sending ten.
                 await workloadExtendService.deploy({
                     pathParams: {
                         cluster: this.cluster,
@@ -377,7 +405,7 @@ export default {
                     params: {
                         ...(dryRun === true ? { dryRun: true } : {}),
                     },
-                    data: content,
+                    data: { objects: docs },
                     noAlert: true,
                 });
                 if (dryRun === true) {

@@ -74,11 +74,11 @@
               操作审计
             </u-sidebar-item>
           </u-sidebar-group>
-          <u-sidebar-item :to="{ path: '/platform/monitor' }">
+          <u-sidebar-item v-if="monitoringFeature" :to="{ path: '/platform/monitor' }">
             <u-icons name="monitor" />组件监控
           </u-sidebar-item>
           <u-sidebar-group
-            v-if="isPlatform"
+            v-if="isPlatform && monitoringFeature"
             class="m-sidebar-group"
           >
             <span slot="title"><u-icons name="config" />告警</span>
@@ -128,6 +128,10 @@ export default {
     },
     computed: {
         auditFeature: get('feature/features@audit'),
+        // 组件监控 and the alert pages need the monitoring chart, which the
+        // offline installer switches off. The flag was already in the store and
+        // read by nothing, so both entries led to pages that could not load.
+        monitoringFeature: get('feature/features@kubecube-monitoring'),
         userRole: get('scope/userRole'),
         globalLoading: get('scope/loading'),
         isPlatform() {
