@@ -94,6 +94,15 @@ import roleDialog from './role-dialog.vue';
 import {
     ROLES,
 } from 'kubecube/utils/constance';
+
+// 服务层把失败的响应体本身抛了出来（service.js 的 `throw data || error`），所以
+// 服务端给的原因在 e.message 上；e.response.data.message 是 axios 原始错误的
+// 形状，只在异常没有经过服务层时才存在。读消息的地方都走这里，免得某一处只认
+// 其中一种形状，把服务端的原因丢掉、只剩一句笼统的兜底。
+function readErrorMessage(e, fallback) {
+    return getFunc(e, 'message') || getFunc(e, 'response.data.message') || fallback;
+}
+
 export default {
     metaInfo() {
         let current = '';
@@ -256,7 +265,7 @@ export default {
             } catch (e) {
                 // 保存失败时保留页面上的勾选，让人改完再存。
                 this.$message({
-                    message: getFunc(e, 'response.data.message') || '角色保存失败',
+                    message: readErrorMessage(e, '角色保存失败'),
                     type: 'error',
                 });
             }
@@ -277,10 +286,9 @@ export default {
                         });
                         this.refresh();
                     } catch (e) {
-                        // 删除失败时角色还在页面上，把服务端的原因说出来。服务层
-                        // 抛出的是响应体本身，所以先读 message。
+                        // 删除失败时角色还在页面上，把服务端的原因说出来。
                         this.$message({
-                            message: getFunc(e, 'message') || getFunc(e, 'response.data.message') || '角色删除失败',
+                            message: readErrorMessage(e, '角色删除失败'),
                             type: 'error',
                         });
                     }

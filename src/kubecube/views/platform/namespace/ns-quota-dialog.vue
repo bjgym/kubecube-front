@@ -119,6 +119,7 @@ import { Modal } from '@micro-app/common/mixins';
 import {
     toPlainObject as toResourceQuotaPlainObject,
     patchK8SObject as patchResourceQuotaPK8SObject,
+    toK8SObject as toResourceQuotaK8SObject,
 } from 'kubecube/k8s-resources/resourceQuota/index.js';
 import clusterSelect from './cluster-select.vue';
 
@@ -194,8 +195,10 @@ export default {
         };
     },
     computed: {
+        // 只有全新空间可以在对话框里改集群、租户、项目和名称。补建配额面对的是
+        // 一个已经存在的空间，这些字段由列表行定死，所以和编辑一样只读。
         isEdit() {
-            return this.type === 'edit';
+            return this.type !== 'create';
         },
         params() {
             return {
@@ -273,24 +276,43 @@ export default {
                     type: item.type,
                     tenant: { value: item.tenant },
                 });
-                const response = await workloadService.getAPIV1Instance({
-                    pathParams: {
-                        cluster: item.cluster,
-                        namespace: item.namespace,
-                        resource: 'resourcequotas',
-                        name: `${item.cluster}.${item.tenant}.${item.project}.${item.namespace}`,
-                    },
-                });
-                this.model.resource = toResourceQuotaPlainObject(response);
+                try {
+                    const response = await workloadService.getAPIV1Instance({
+                        pathParams: {
+                            cluster: item.cluster,
+                            namespace: item.namespace,
+                            resource: 'resourcequotas',
+                            name: `${item.cluster}.${item.tenant}.${item.project}.${item.namespace}`,
+                        },
+                        // 配额不存在是这里预期的结果（见下方），不该弹网络异常的提示。
+                        noAlert: true,
+                    });
+                    this.model.resource = toResourceQuotaPlainObject(response);
+                    this.type = 'edit';
+                } catch (error) {
+                    // 纳管先写归属标签再建配额，且失败时不回滚删掉命名空间（那会
+                    // 把里面的东西一起毁掉），所以"已纳管但没有配额"是平台允许
+                    // 存在的状态。只有明确的 NotFound 才是"确实没有配额"，这时
+                    // 切到补建；其他错误说明这次读取本身失败了，不能当成没有配额，
+                    // 否则界面会假装在补建，实际却是覆盖掉一个已经存在的配额。
+                    if (!error || error.reason !== 'NotFound') {
+                        this.$message({
+                            message: (error && error.message) || '空间配额读取失败',
+                            type: 'error',
+                        });
+                        this.show = false;
+                        return;
+                    }
+                    this.model.resource = toResourceQuotaPlainObject();
+                    this.type = 'recreate';
+                }
                 this.resourceLoaded = true;
-                this.type = 'edit';
             } else {
                 this.model.resource = toResourceQuotaPlainObject();
                 this.model.pipe.namespace = '';
                 this.resourceLoaded = true;
                 this.type = 'create';
             }
-
         },
         async submit() {
             try {
@@ -305,7 +327,6 @@ export default {
                 const namespace = this.model.pipe.namespace;
                 const tenant = this.model.pipe.tenant.value;
                 const project = this.model.pipe.project.value;
-                const projectNs = this.model.pipe.project.spec.namespace;
                 if (this.type === 'edit') {
                     // 更新ResourceQuota
                     const quota = patchResourceQuotaPK8SObject(
@@ -322,7 +343,32 @@ export default {
                     });
                     this.show = false;
                     this.$emit('refresh', tenant);
+                } else if (this.type === 'recreate') {
+                    // 空间已经存在且已纳管，缺的只有配额：既不能走创建空间的接口
+                    // （那会重复创建命名空间），也不能 PATCH（对象根本不存在）。
+                    // 所以要单独把配额建出来，名字和标签跟纳管本应写下的完全一致
+                    // （toK8SObject 就是那套标签），字段与创建空间时相同。
+                    const quota = toResourceQuotaK8SObject({
+                        cluster,
+                        namespace,
+                        tenant,
+                        project,
+                    }, this.model.resource);
+                    await workloadService.createAPIV1Instance({
+                        pathParams: {
+                            cluster,
+                            namespace,
+                            resource: 'resourcequotas',
+                        },
+                        data: quota,
+                    });
+                    this.show = false;
+                    this.$emit('refresh', tenant);
                 } else {
+                    // 只有创建空间时才需要项目的命名空间：那是新建命名空间要挂
+                    // 到的位置。编辑和补建面对的空间已经在了，它们的 project 只是
+                    // 一个从列表行来的 { value }，没有 spec。
+                    const projectNs = this.model.pipe.project.spec.namespace;
                     const quota = patchResourceQuotaPK8SObject(
                         this.model.resource
                     );

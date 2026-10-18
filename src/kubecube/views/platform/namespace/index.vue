@@ -146,9 +146,15 @@
                   type="primary"
                   @click="onboardItem(row)"
                 >纳管</el-link>
+                <!-- 修改配额 is offered for every managed space, with or without a
+                     quota. Onboarding writes the ownership labels before the quota
+                     and deliberately does not roll back by deleting the namespace,
+                     so a managed space with no quota is a state the platform can
+                     legitimately be in; the dialog creates the missing quota
+                     instead of patching one. Gating on `row.resourceQuato` would
+                     hide the only action that can repair that state. -->
                 <el-link
                   v-if="!row.unmanaged"
-                  :disabled="!row.resourceQuato && !row.nodeResourceQuato && !row.colocationResourceQuato"
                   type="primary"
                   @click="editItem(row)"
                 >修改配额</el-link>
