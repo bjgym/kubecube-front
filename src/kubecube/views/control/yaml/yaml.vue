@@ -341,9 +341,10 @@ export default {
             try {
                 if (!this.isPreview) {
                     this.oldYamlContent = this.yamlContent;
-                    // let content = this.editor.getModel().getValue();
-                    // const content = yamljs.parse(this.yamlContent);
-                    const content = YAML.parse(this.yamlContent);
+                    // Dead today — nothing calls this — but it posts the same
+                    // shape as submit() so that wiring it up cannot silently
+                    // reintroduce the body the API refuses.
+                    const docs = parseDocuments(this.yamlContent);
                     const response = await workloadExtendService.deploy({
                         pathParams: {
                             cluster: this.cluster,
@@ -351,7 +352,7 @@ export default {
                         params: {
                             dryRun: true,
                         },
-                        data: content,
+                        data: { objects: docs },
                     });
                     this.yamlContent = yamljs.stringify(response, 20, 2);
                     // const ctnt = yamljs.stringify(response, 20, 2);

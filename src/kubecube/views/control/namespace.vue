@@ -21,7 +21,7 @@
       >
         <div
           v-for="p in items"
-          :key="p.value"
+          :key="`${p.cluster}/${p.value}`"
           :class="$style.panel"
           @click="toNamespace(p)"
         >
@@ -317,7 +317,9 @@ export default {
                 return monitorService.queryInstant({
                     params: {
                         query: q.queryFunc({
-                            cluster: ns.cluster || this.cluster,
+                            // the card's own cluster: `p` is the row, and this
+                            // function has no `ns` in scope
+                            cluster: p.cluster || this.cluster,
                             namespace: p.metadata.name,
                         }),
                         time: q.time,
