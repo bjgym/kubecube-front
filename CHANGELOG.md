@@ -1,4 +1,6 @@
 # V1.3.1
+## Feature
+- the terminal renders the server's out-of-band `toast` hint — the note that a `kubectl get` table is only a summary — on its own coloured line, in both socket handlers (CloudShell and the container exec dialog). The message contract already reserved the channel; the client had no case for it
 ## Build
 - build the bundle inside the image, so `docker build` no longer needs a prior `npm run build`; the builder is pinned to Node 12.18, the npm registry moves off the retired taobao mirror, and `KUBECUBE_BRAND_NAME` is a build argument
 ## Bug fix

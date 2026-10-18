@@ -91,6 +91,14 @@ export function initSocket(getTerm, reconnectCallback) {
                     case 'stdout':
                         term.write(msg.Data);
                         break;
+                    case 'toast':
+                        // Out-of-band hint from the server (the table note for
+                        // `kubectl get`). It starts on its own line so it cannot
+                        // overwrite whatever the stream is in the middle of, and
+                        // it is coloured to mark it as platform output rather
+                        // than kubectl output.
+                        term.write('\r\n\x1b[33m' + msg.Data + '\x1b[0m\r\n');
+                        break;
                     default:
                 }
             } catch (err) {
