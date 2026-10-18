@@ -1,6 +1,18 @@
 import { get, isPlainObject } from 'lodash';
 import BigNumber from 'bignumber.js';
 import parseMS from 'parse-ms';
+// Set a picker's value from its list, defaulting when the list cannot supply the
+// current one.
+//
+// The two cases are not the same thing and used to be treated as if they were:
+//
+//   * nothing is selected — the first entry is the sensible default
+//   * something IS selected and is not in the list — a cluster the console does
+//     not offer, say. Substituting the first entry here is what made every
+//     cluster look like the pivot: the store was overwritten silently and the URL
+//     is rewritten from the store, so the cluster the user asked for was gone
+//     before any page read it. The substitution still happens — it is the only
+//     usable value — but it is reported, so a caller can say so.
 export function setValueIfListNotPresent({
     list,
     path,
@@ -8,11 +20,19 @@ export function setValueIfListNotPresent({
 },
 callback) {
     const t = list.find(c => get(c, path, null) === current);
-    if (list.length && !t) {
-        callback(list[0]);
-    } else {
+    if (t) {
         callback(t);
+        return;
     }
+    if (!list.length) {
+        callback(t);
+        return;
+    }
+    if (current === null || current === undefined || current === '') {
+        callback(list[0]);
+        return;
+    }
+    callback(list[0], { requested: current, substituted: true });
 }
 
 export const unitConvert = (value = '', type = 'memory') => {

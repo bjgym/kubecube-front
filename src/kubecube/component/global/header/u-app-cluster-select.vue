@@ -118,10 +118,18 @@ export default {
                     list: this.items.filter(i => !i.disabled),
                     path: 'value',
                     current: this.model || this.routeCluster,
-                }, val => {
-                    // console.log(val);
+                }, (val, info) => {
                     this.model = val.value;
                     this.cluster = val;
+                    // The cluster named in the URL is not one this console can
+                    // offer — most often a member cluster that does not hold the
+                    // selected tenant or project. Falling back is right; doing it
+                    // without saying so is not, because the query is rewritten
+                    // from the store below, so every page then looks as though the
+                    // request had been honoured.
+                    if (info && info.substituted) {
+                        this.$toast.warning(`集群 ${info.requested} 在当前租户/项目下不可用，已切换到 ${val.text || val.value}`);
+                    }
                 });
                 this.clusterLoading = false;
                 //  else {

@@ -224,6 +224,7 @@ export default {
         project: get('scope/project@value'),
         namespace: sync('scope/namespace'),
         cluster: get('scope/cluster@value'),
+        clusterList: get('scope/clusterList'),
         pageIdentifier: get('scope/pageIdentifier'),
     },
     mounted() {
@@ -251,12 +252,31 @@ export default {
                     params.labelSelector.push(...spacesOfProject(this.project));
                 }
                 params.labelSelector = params.labelSelector.join(',');
-                const response = await nsService.getNamespaces({
+                // Every cluster the user can reach, not only the one the switcher
+                // happens to hold. A space created in a member cluster was
+                // invisible whenever the console sat on the pivot — which is where
+                // most sessions start — and the list gave no sign that anything
+                // was missing.
+                const targets = (this.clusterList || [])
+                    .map(c => getFunc(c, 'value') || getFunc(c, 'clusterName'))
+                    .filter(Boolean);
+                if (!targets.length && this.cluster) {
+                    targets.push(this.cluster);
+                }
+                const responses = await Promise.all(targets.map(cluster => nsService.getNamespaces({
                     pathParams: {
-                        cluster: this.cluster,
+                        cluster,
                     },
                     params,
-                });
+                }).then(response => ({
+                    cluster,
+                    items: getFunc(response, 'items', []),
+                })).catch(err => {
+                    // One unreachable cluster must not empty the page.
+                    console.log(cluster, err);
+                    return { cluster, items: [] };
+                })));
+
                 const time = Date.now() / 1000;
                 const query = Object.keys(promequery).map(k => {
                     return {
@@ -266,14 +286,21 @@ export default {
                     };
 
                 });
-                this.items = response.items.map(i => {
-                    const name = getFunc(i, 'metadata.name', '');
-                    return {
-                        text: name,
-                        value: name,
-                        ...i,
-                        query,
-                    };
+                this.items = [];
+                responses.forEach(({ cluster, items }) => {
+                    items.forEach(i => {
+                        const name = getFunc(i, 'metadata.name', '');
+                        this.items.push({
+                            text: name,
+                            value: name,
+                            ...i,
+                            // the row carries the cluster it came from, so the
+                            // detail route can name that one rather than the
+                            // console's current selection
+                            cluster,
+                            query,
+                        });
+                    });
                 });
                 this.namespaceLoading = false;
                 this.replaceToContorlQuery();
@@ -290,7 +317,7 @@ export default {
                 return monitorService.queryInstant({
                     params: {
                         query: q.queryFunc({
-                            cluster: this.cluster,
+                            cluster: ns.cluster || this.cluster,
                             namespace: p.metadata.name,
                         }),
                         time: q.time,
@@ -317,7 +344,7 @@ export default {
                 query: {
                     tenant: this.tenant,
                     project: this.project,
-                    cluster: this.cluster,
+                    cluster: ns.cluster || this.cluster,
                     namespace: ns.value,
                 },
             });
@@ -329,7 +356,7 @@ export default {
                 query: {
                     tenant: this.tenant,
                     project: this.project,
-                    cluster: this.cluster,
+                    cluster: ns.cluster || this.cluster,
                     namespace: ns.value,
                 },
             });
@@ -342,7 +369,7 @@ export default {
                 query: {
                     tenant: this.tenant,
                     project: this.project,
-                    cluster: this.cluster,
+                    cluster: ns.cluster || this.cluster,
                     namespace: ns.value,
                 },
             });
