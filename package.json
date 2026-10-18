@@ -72,7 +72,7 @@
         "vue-input-tag": "^2.0.7",
         "vue-json-pretty": "^1.8.0",
         "vue-meta": "^2.4.0",
-        "vue-router": "^3.5.1",
+        "vue-router": "3.5.4",
         "vue-sticky-directive": "0.0.10",
         "vue-template-compiler": "2.6.11",
         "vuex": "^3.1.3",
