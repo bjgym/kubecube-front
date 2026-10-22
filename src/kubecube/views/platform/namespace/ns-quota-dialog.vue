@@ -1,6 +1,6 @@
 <template>
   <el-dialog
-    :title="type === 'create' ? '创建空间' : '修改空间'"
+    :title="title"
     :visible.sync="show"
     @close="close"
     width="900px"
@@ -199,6 +199,18 @@ export default {
         // 一个已经存在的空间，这些字段由列表行定死，所以和编辑一样只读。
         isEdit() {
             return this.type !== 'create';
+        },
+        // 三种用途各有各的说法：新建空间、给一个已纳管但没有配额的空间补配额、
+        // 以及改一个已有空间的配额。后两者共用同只读字段，但用户看到的是两件事，
+        // 标题写成"修改"会让补建配额看起来像是在改一个并不存在的配额。
+        title() {
+            if (this.type === 'create') {
+                return '创建空间';
+            }
+            if (this.type === 'recreate') {
+                return '为空间补建配额';
+            }
+            return '修改空间';
         },
         params() {
             return {
