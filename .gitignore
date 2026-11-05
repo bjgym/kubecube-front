@@ -73,3 +73,12 @@ build.sh
 # .npmrc
 
 src-copy/
+
+# Modern app local tooling
+.npm-cache/
+.env.local
+.env.*.local
+playwright-report/
+test-results/
+artifacts/
+.playwright-browsers/

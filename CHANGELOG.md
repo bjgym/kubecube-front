@@ -1,3 +1,26 @@
+# V2.0.0
+## Feature
+- rebuild the console with Vue 3, TypeScript, Vite, Pinia and Element Plus while preserving the existing KubeCube API, session, route and workspace-context contracts
+- unify responsive application navigation, workspace selection, resource lists and details, forms, monitoring, logs, YAML editing and browser terminals under one design system
+- add backend-independent UI preview data and unit coverage for Kubernetes API paths, YAML processing, scope query inheritance and readable resource status
+- render monitoring from Dashboard CR variables, rows and graph/table/singleStat panels, falling back explicitly to built-in metrics when a definition is unavailable
+- keep Logseer search on its `_search` contract and model log tasks through the dedicated v2 API rather than a Kubernetes CRD, including task-scoped log filters
+- preserve unedited workload, Service, Ingress, Secret and rule fields during guided edits; rolling updates change images only, and default image-pull Secrets stay protected
+- provide structured workload editing for multi-container/init containers, ports, environment sources, volumes, mounts, probes, affinity, tolerations, strategies, Job/CronJob settings and StatefulSet volume claim templates
+- provide structured Service multi-port/headless/external-IP/session-affinity editing and Ingress multi-host/path/TLS editing without dropping unknown fields
+- provide typed Secret editors for TLS and dockerconfigjson, full NetworkPolicy ingress/egress peers and ports, and LogConfig labels, multiline, exclusions and retention
+- provide multi-group PrometheusRule editing plus AlertmanagerConfig receiver channels for WeCom, email and webhook, including the `kubecube_io_owner` route matcher and labels
+- add type-aware resource overviews, Pod container entry points, container mounts/probes/commands, PVC mounted Pods, Deployment current/history Pod filtering, event/Condition auto-refresh and replica scaling from the detail page
+- add direct RoleBinding/ClusterRoleBinding subjects to the role page, audit time sorting, node role/instance-type/GPU facts, namespace quota used/hard limits, quota capacity hints and inline quota/member steps in the quick-start wizard
+- add a structured global Alertmanager route/receiver editor while retaining the full YAML mode
+- validate the console against a live KubeCube 1.8.2 deployment and fix the contracts it exposed: `/clusters/namespaces` returns cluster names rather than cluster objects, direct `#/namespace` loads initialize scope, and a deployment without the monitoring feature enters the console through the deployment list instead of the monitoring dashboard
+- keep namespace overview loading within the browser's connection budget: metrics are skipped when monitoring is disabled, resource counts are silent and capped at two concurrent namespaces, and API calls allow 30 seconds for slower clusters
+## Build
+- build the modern application with Node.js 24 in the container image; remove the node-sass, native-compilation and host-platform build-argument requirements, so plain `docker build` and buildx both work
+- expose the modern build, development server, lint and tests through the repository-root npm commands; retain separate legacy commands for migration comparison
+- override DOMPurify to the patched 3.4.17 release for the Monaco dependency tree
+
+
 # V1.3.1
 ## Feature
 - the terminal renders the server's out-of-band `toast` hint — the note that a `kubectl get` table is only a summary — on its own coloured line, in both socket handlers (CloudShell and the container exec dialog). The message contract already reserved the channel; the client had no case for it

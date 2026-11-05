@@ -4,14 +4,18 @@
 
 # The bundle is built inside the image, so one docker build produces the image.
 # The published tag carries a -multi suffix, which means buildx assembles the
-# manifest from both architectures. The arm64 leg compiles node-sass, which
-# needs a toolchain the builder does not carry; see the Dockerfile.
+# manifest from both architectures. The static Vite bundle and the Node.js 24
+# builder need no architecture-specific native compilation.
 IMG ?= kubecube/frontend:dev
 BRAND ?= Kubecube
 
 image:
-	docker build -t ${IMG} --build-arg KUBECUBE_BRAND_NAME="${BRAND}" .
+	docker build -t ${IMG} \
+		--build-arg KUBECUBE_BRAND_NAME="${BRAND}" \
+		--build-arg VITE_BRAND_NAME="${BRAND}" .
 
 image-multi-arch:
-	docker buildx build -t ${IMG} --build-arg KUBECUBE_BRAND_NAME="${BRAND}" \
-	  --platform=linux/amd64,linux/arm64 . --push
+	docker buildx build -f Dockerfile.multiarch -t ${IMG} \
+		--build-arg KUBECUBE_BRAND_NAME="${BRAND}" \
+		--build-arg VITE_BRAND_NAME="${BRAND}" \
+		--platform=linux/amd64,linux/arm64 . --push

@@ -1,6 +1,23 @@
 # The image builds its own bundle, so a local build output must not reach the
 # context; a local node_modules would shadow the container's dependencies.
 node_modules
+modern/node_modules
+modern/.npm-cache
+modern/playwright-report
+modern/test-results
+modern/.playwright-browsers
+modern/artifacts
+modern/coverage
+modern/.env.local
+modern/.env.*.local
+.npm-cache
+playwright-report
+test-results
+.playwright-browsers
+artifacts
+.env
+.env.local
+.env.*.local
 public
 public2
 dist
