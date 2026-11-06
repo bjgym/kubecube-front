@@ -38,19 +38,21 @@ export default defineConfig(({ mode }) => {
     server: {
       proxy: {
         '/api/v1/cube': { target: cubeTarget, secure: false, changeOrigin: true, agent: cubeAgent },
-        '/api/v1/logseer': { target: logseerTarget, changeOrigin: true },
-        '/api/v2/logseer': { target: logseerTarget, changeOrigin: true },
-        '/api/v1/label': { target: monitoringTarget, changeOrigin: true },
-        '/api/v1/series': { target: monitoringTarget, changeOrigin: true },
-        '/api/v1/query': { target: monitoringTarget, changeOrigin: true },
-        '/api/v1/query_range': { target: monitoringTarget, changeOrigin: true },
+        '/api/v1/logseer': { target: logseerTarget, secure: false, changeOrigin: true },
+        '/api/v2/logseer': { target: logseerTarget, secure: false, changeOrigin: true },
+        '/api/v1/label': { target: monitoringTarget, secure: false, changeOrigin: true },
+        '/api/v1/series': { target: monitoringTarget, secure: false, changeOrigin: true },
+        '/api/v1/query': { target: monitoringTarget, secure: false, changeOrigin: true },
+        '/api/v1/query_range': { target: monitoringTarget, secure: false, changeOrigin: true },
         '/api/v1/webconsole': {
           target: webconsoleTarget,
+          secure: false,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/api\/v1\/webconsole/, '/api/v1'),
         },
         '/webconsole/api/sockjs': {
           target: webconsoleTarget,
+          secure: false,
           ws: true,
           changeOrigin: true,
           rewrite: (path) => path.replace(/^\/webconsole\/api\/sockjs/, '/api/sockjs'),

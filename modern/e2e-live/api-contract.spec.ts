@@ -154,7 +154,7 @@ async function deleteEventually(page: Page, url: string) {
 }
 
 test('live resource API contracts create read delete', async ({ page }) => {
-  test.setTimeout(240_000)
+  test.setTimeout(300_000)
   await login(page)
   for (const resource of resources) {
     await deleteEventually(page, `${resource.path}/${resource.name}`)
@@ -164,4 +164,48 @@ test('live resource API contracts create read delete', async ({ page }) => {
     expect(read.ok(), `${resource.name} read: ${read.status()}`).toBeTruthy()
     await deleteEventually(page, `${resource.path}/${resource.name}`)
   }
+
+  const control = `/api/v1/cube/proxy/clusters/${cluster}/apis/tenant.kubecube.io/v1`
+  await deleteEventually(page, `${control}/tenants/live-api-tenant`)
+  const tenant = await page.request.post(`${control}/tenants`, {
+    data: {
+      apiVersion: 'tenant.kubecube.io/v1',
+      kind: 'Tenant',
+      metadata: { name: 'live-api-tenant' },
+      spec: { displayName: 'Live API Tenant' },
+    },
+  })
+  expect(tenant.ok(), `tenant create: ${tenant.status()} ${await tenant.text()}`).toBeTruthy()
+  expect((await page.request.get(`${control}/tenants/live-api-tenant`)).ok()).toBeTruthy()
+  expect(
+    (
+      await page.request.patch(`${control}/tenants/live-api-tenant`, {
+        headers: { 'Content-Type': 'application/merge-patch+json' },
+        data: { spec: { displayName: 'Live API Tenant Updated' } },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  await deleteEventually(page, `${control}/tenants/live-api-tenant`)
+
+  const deploymentPath = collection('apps', 'v1', 'deployments')
+  await deleteEventually(page, `${deploymentPath}/live-api-scale`)
+  expect((await page.request.post(deploymentPath, { data: deployment('live-api-scale') })).ok()).toBeTruthy()
+  expect(
+    (
+      await page.request.patch(`${deploymentPath}/live-api-scale`, {
+        headers: { 'Content-Type': 'application/merge-patch+json' },
+        data: { spec: { replicas: 2 } },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  expect((await page.request.get(`${deploymentPath}/live-api-scale`)).ok()).toBeTruthy()
+  expect(
+    (
+      await page.request.patch(`${deploymentPath}/live-api-scale`, {
+        headers: { 'Content-Type': 'application/merge-patch+json' },
+        data: { spec: { template: { metadata: { annotations: { 'kubecube.io/restartedAt': new Date().toISOString() } } } } },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  await deleteEventually(page, `${deploymentPath}/live-api-scale`)
 })
