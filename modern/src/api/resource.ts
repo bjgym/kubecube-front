@@ -86,6 +86,31 @@ export interface PvcPodsResponse {
   total: number
 }
 
+export interface EndpointAddress {
+  ip?: string
+  hostname?: string
+  nodeName?: string
+  targetRef?: { kind?: string; name?: string; namespace?: string }
+}
+
+export interface EndpointSubset {
+  addresses?: EndpointAddress[]
+  notReadyAddresses?: EndpointAddress[]
+  ports?: Array<{ name?: string; port?: number; protocol?: string }>
+}
+
+export interface EndpointsResource {
+  metadata?: { name?: string }
+  subsets?: EndpointSubset[]
+}
+
+const endpointsDefinition: ResourceDefinition = {
+  plural: 'endpoints',
+  kind: 'Endpoints',
+  version: 'v1',
+  namespaced: true,
+}
+
 const isLogConfig = (definition: ResourceDefinition) => definition.kind === 'LogConfig'
 
 export const resourceApi = {
@@ -133,6 +158,8 @@ export const resourceApi = {
   setExternalAccess: (cluster: string, namespace: string, name: string, data: ExternalAccessPortUpdate[]) =>
     request<void>({ url: externalAccessPath(cluster, namespace, name), method: 'POST', data }),
   pvcPods: (cluster: string, namespace: string, name: string) => request<PvcPodsResponse>({ url: pvcPodsPath(cluster, namespace, name) }),
+  serviceEndpoints: (cluster: string, namespace: string, name: string) =>
+    request<EndpointsResource>({ url: resourcePath(endpointsDefinition, { cluster, namespace, name }, true) }),
   deployYaml: (cluster: string, data: unknown, dryRun = false) =>
     request<unknown>({
       url: `/api/v1/cube/extend/clusters/${encodeURIComponent(cluster)}/yaml/deploy`,

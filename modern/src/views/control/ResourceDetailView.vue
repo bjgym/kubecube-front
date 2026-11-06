@@ -10,7 +10,7 @@
         ><el-button @click="router.push({ path: `/control/${config.key}/list`, query: scope.query })">返回列表</el-button
         ><el-button @click="openYaml"
           ><el-icon><Document /></el-icon>YAML</el-button
-        ><el-dropdown v-if="config.canEdit || config.canRestart || config.canScale" @command="onCommand"
+        ><el-dropdown v-if="config.canEdit || config.canRestart || config.canScale || config.key === 'pods'" @command="onCommand"
           ><el-button type="primary"
             >管理资源<el-icon class="el-icon--right"><ArrowDown /></el-icon></el-button
           ><template #dropdown
@@ -18,6 +18,7 @@
               ><el-dropdown-item v-if="config.canEdit" command="edit">设置资源</el-dropdown-item
               ><el-dropdown-item v-if="config.canScale" command="scale">调整副本数</el-dropdown-item
               ><el-dropdown-item v-if="config.canRestart" command="restart">重建副本</el-dropdown-item
+              ><el-dropdown-item v-if="config.key === 'pods'" command="evict">驱逐 Pod</el-dropdown-item
               ><el-dropdown-item command="delete" :disabled="isProtectedResource" divided
                 ><span class="danger-text">删除资源</span></el-dropdown-item
               ></el-dropdown-menu
@@ -62,6 +63,45 @@
                 fact.value
               }}</el-descriptions-item></el-descriptions
             >
+          </section>
+          <section v-if="config.key === 'services'" v-loading="serviceRelationLoading" class="detail-section">
+            <div class="section-title">
+              <h2>服务关联</h2>
+              <span>选择器、Endpoints 与匹配的 Pod</span>
+            </div>
+            <el-alert v-if="serviceRelationError" :title="serviceRelationError" type="warning" :closable="false" show-icon />
+            <el-descriptions :column="descriptionColumns" border
+              ><el-descriptions-item v-for="fact in serviceFacts" :key="fact.label" :label="fact.label">{{
+                fact.value
+              }}</el-descriptions-item></el-descriptions
+            >
+            <h3 class="relation-heading">Endpoints</h3>
+            <el-table :data="serviceAddresses" size="small"
+              ><el-table-column prop="ip" label="地址" min-width="150" /><el-table-column
+                prop="target"
+                label="目标"
+                min-width="180" /><el-table-column prop="ports" label="端口" min-width="140"
+            /></el-table>
+            <p v-if="!serviceAddresses.length" class="text-tertiary relation-empty">当前没有就绪的 Endpoint 地址。</p>
+            <h3 class="relation-heading">关联 Pods（{{ servicePods.length }}）</h3>
+            <el-table :data="servicePods" size="small"
+              ><el-table-column label="名称" min-width="240"
+                ><template #default="{ row }"
+                  ><router-link
+                    :to="{
+                      name: 'control.workload.info',
+                      params: { workload: 'pods', instance: row.metadata.name, tab: 'info' },
+                      query: scope.query,
+                    }"
+                    >{{ row.metadata.name }}</router-link
+                  ></template
+                ></el-table-column
+              ><el-table-column prop="status.phase" label="状态" width="110" /><el-table-column
+                prop="status.podIP"
+                label="Pod IP"
+                width="140"
+            /></el-table>
+            <p v-if="!servicePods.length" class="text-tertiary relation-empty">选择器没有匹配到运行中的 Pod。</p>
           </section>
           <section v-if="config.key === 'pods' && podContainers.length" class="detail-section">
             <div class="section-title">
@@ -460,7 +500,7 @@ import EmptyState from '@/components/EmptyState.vue'
 import CodeEditor from '@/components/CodeEditor.vue'
 import YamlEditorDialog from '@/components/YamlEditorDialog.vue'
 import DashboardView from './DashboardView.vue'
-import { resourceApi, type ExternalAccessPortUpdate, type ResourceDefinition } from '@/api/resource'
+import { resourceApi, type EndpointSubset, type ExternalAccessPortUpdate, type ResourceDefinition } from '@/api/resource'
 import { getResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
@@ -507,6 +547,37 @@ const resource = ref<KubeResource>()
 const loading = ref(false)
 const error = ref('')
 const relatedPods = ref<KubeResource[]>([])
+const servicePods = ref<KubeResource[]>([])
+const serviceEndpointSubsets = ref<EndpointSubset[]>([])
+const serviceRelationLoading = ref(false)
+const serviceRelationError = ref('')
+const serviceSelector = computed(() => {
+  const selector = (resource.value?.spec as Record<string, unknown> | undefined)?.selector
+  return selector && typeof selector === 'object' ? (selector as Record<string, string>) : {}
+})
+const serviceAddresses = computed(() =>
+  serviceEndpointSubsets.value.flatMap((subset) =>
+    (subset.addresses || []).map((address) => ({
+      ip: address.ip || address.hostname || '—',
+      target: address.targetRef?.name || address.nodeName || '—',
+      ports: (subset.ports || []).map((port) => `${port.name ? `${port.name}:` : ''}${port.port}/${port.protocol || 'TCP'}`).join(', '),
+    })),
+  ),
+)
+const serviceFacts = computed(() => {
+  const spec = (resource.value?.spec || {}) as Record<string, unknown>
+  return [
+    { label: '类型', value: String(spec.type || 'ClusterIP') },
+    { label: 'Cluster IP', value: String(spec.clusterIP || '—') },
+    {
+      label: '选择器',
+      value:
+        Object.entries(serviceSelector.value)
+          .map(([key, value]) => `${key}=${value}`)
+          .join(', ') || '—',
+    },
+  ]
+})
 const podVersions = ref<Record<string, 'current' | 'history'>>({})
 const versionFilter = ref<'all' | 'current' | 'history'>('all')
 const filteredRelatedPods = computed(() =>
@@ -815,6 +886,7 @@ async function loadResource() {
   try {
     resource.value = await resourceApi.get(config.value, context.value)
     yamlContent.value = toYAML(resource.value)
+    if (config.value.key === 'services') await loadServiceRelations()
     if (['pod', 'jobs', 'log', 'event', 'condition'].includes(activeTab.value)) await loadRelated()
     if (activeTab.value === 'event') await loadEvents()
   } catch (reason) {
@@ -829,6 +901,25 @@ function ownerReferences(item: KubeResource): Array<Record<string, unknown>> {
 }
 function ownedBy(item: KubeResource, uids: Set<string>, names: Set<string> = new Set()) {
   return ownerReferences(item).some((ref) => uids.has(String(ref.uid || '')) || names.has(String(ref.name || '')))
+}
+async function loadServiceRelations() {
+  serviceRelationLoading.value = true
+  serviceRelationError.value = ''
+  try {
+    const [endpoints, pods] = await Promise.all([
+      resourceApi.serviceEndpoints(scope.cluster, scope.namespace, instanceName.value),
+      resourceApi.list(podDefinition, context.value, { pageNum: 1, pageSize: 500 }),
+    ])
+    serviceEndpointSubsets.value = endpoints.subsets || []
+    const selector = serviceSelector.value
+    servicePods.value = (pods.items || []).filter((pod) =>
+      Object.entries(selector).every(([key, value]) => pod.metadata.labels?.[key] === value),
+    )
+  } catch (reason) {
+    serviceRelationError.value = reason instanceof Error ? reason.message : '服务关联信息加载失败'
+  } finally {
+    serviceRelationLoading.value = false
+  }
 }
 async function loadRelated() {
   relatedLoading.value = true
@@ -1040,6 +1131,18 @@ async function onCommand(command: string) {
     })
     ElMessage.success('已触发重建')
     await loadResource()
+  } else if (command === 'evict') {
+    await ElMessageBox.confirm(`驱逐会终止 Pod ${instanceName.value}，并由其控制器重建；确定继续吗？`, '驱逐 Pod', {
+      type: 'warning',
+      confirmButtonText: '确认驱逐',
+    })
+    await resourceApi.evictPod(scope.cluster, scope.namespace, instanceName.value, {
+      apiVersion: 'policy/v1',
+      kind: 'Eviction',
+      metadata: { name: instanceName.value, namespace: scope.namespace },
+    })
+    ElMessage.success('已提交驱逐请求')
+    router.push({ path: `/control/${config.value.key}/list`, query: scope.query })
   } else if (command === 'delete') {
     if (isProtectedResource.value) {
       ElMessage.warning('默认镜像拉取 Secret 不能删除')
@@ -1198,6 +1301,14 @@ onBeforeUnmount(() => {
 }
 .section-title span {
   color: var(--text-tertiary);
+  font-size: 12px;
+}
+.relation-heading {
+  margin: 18px 0 8px;
+  font-size: 13px;
+}
+.relation-empty {
+  margin-top: 8px;
   font-size: 12px;
 }
 .uid {

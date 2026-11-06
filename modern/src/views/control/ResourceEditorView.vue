@@ -452,7 +452,39 @@
             <div class="field-header"><span>多行日志</span><el-switch v-model="form.logMultiline" /></div>
             <el-input v-if="form.logMultiline" v-model="form.logMultilinePattern" placeholder="多行匹配正则，例如^\s" />
             <div class="field-header">
-              <span>匹配字段与追加字段</span
+              <span>额外输入源（inputs）</span
+              ><el-button text type="primary" @click="form.logInputs.push({ name: '', paths: '', containerName: '', raw: {} })"
+                ><el-icon><Plus /></el-icon>添加输入源</el-button
+              >
+            </div>
+            <div v-for="(input, index) in form.logInputs" :key="index" class="log-input-row">
+              <el-input v-model="input.name" placeholder="输入名称" /><el-input
+                v-model="input.paths"
+                placeholder="路径，逗号分隔"
+              /><el-input v-model="input.containerName" placeholder="容器名（选填）" /><el-button
+                text
+                type="danger"
+                aria-label="删除输入源"
+                @click="form.logInputs.splice(index, 1)"
+                ><el-icon><Delete /></el-icon
+              ></el-button>
+            </div>
+            <div class="field-header">
+              <span>匹配字段（matchFields）</span
+              ><el-button text type="primary" @click="form.logMatchFields.push({ key: '', value: '' })"
+                ><el-icon><Plus /></el-icon>添加匹配字段</el-button
+              >
+            </div>
+            <div v-for="(field, index) in form.logMatchFields" :key="index" class="key-value-row">
+              <el-input v-model="field.key" placeholder="匹配字段名，例如 app" /><el-input
+                v-model="field.value"
+                placeholder="匹配值，多个值用逗号分隔"
+              /><el-button text type="danger" aria-label="删除匹配字段" @click="form.logMatchFields.splice(index, 1)"
+                ><el-icon><Delete /></el-icon
+              ></el-button>
+            </div>
+            <div class="field-header">
+              <span>追加字段（fields）</span
               ><el-button text type="primary" @click="form.logFields.push({ key: '', value: '' })"
                 ><el-icon><Plus /></el-icon>添加字段</el-button
               >
@@ -585,6 +617,12 @@ const yamlContent = ref('')
 const yamlError = ref('')
 const activeContainer = ref('0')
 const rawResource = ref<KubeResource>()
+interface LogInputForm {
+  name: string
+  paths: string
+  containerName: string
+  raw: Record<string, unknown>
+}
 interface AlertReceiverForm {
   type: 'wechat' | 'email' | 'webhook'
   sendResolved: boolean
@@ -729,6 +767,8 @@ const form: any = reactive({
   logMultilinePattern: '',
   logLabelSelector: [] as KeyValue[],
   logFields: [] as KeyValue[],
+  logMatchFields: [] as KeyValue[],
+  logInputs: [] as LogInputForm[],
 })
 interface ServiceWorkloadOption {
   value: string
@@ -1127,6 +1167,17 @@ function buildResource(): KubeResource {
           name: first.name || form.name,
           paths,
           containerName: form.logContainerName,
+          matchFields: Object.fromEntries(
+            form.logMatchFields
+              .filter((item: KeyValue) => item.key)
+              .map((item: KeyValue) => [
+                item.key,
+                item.value
+                  .split(',')
+                  .map((value: string) => value.trim())
+                  .filter(Boolean),
+              ]),
+          ),
           fields: pairs(form.logFields),
           multiline: { active: form.logMultiline, pattern: form.logMultilinePattern },
           ignoreOlder: form.logIgnoreOlder,
@@ -1136,7 +1187,15 @@ function buildResource(): KubeResource {
             .filter(Boolean),
           cleanLogs: { retainDays: form.logRetainDays },
         },
-        ...inputs.slice(1),
+        ...form.logInputs.map((extra: LogInputForm, index: number) => ({
+          ...(inputs[index + 1] || {}),
+          name: extra.name || form.name,
+          paths: extra.paths
+            .split(',')
+            .map((item: string) => item.trim())
+            .filter(Boolean),
+          containerName: extra.containerName,
+        })),
       ],
     }
   }
@@ -1317,6 +1376,16 @@ function fillForm(resource: KubeResource) {
   form.logMultiline = Boolean(logInput.multiline?.active)
   form.logMultilinePattern = String(logInput.multiline?.pattern || '')
   form.logFields = Object.entries((logInput.fields || {}) as Record<string, string>).map(([key, value]) => ({ key, value }))
+  form.logMatchFields = Object.entries((logInput.matchFields || {}) as Record<string, string | string[]>).map(([key, value]) => ({
+    key,
+    value: Array.isArray(value) ? value.join(', ') : String(value),
+  }))
+  form.logInputs = ((spec?.inputs || []) as Array<Record<string, any>>).slice(1).map((input) => ({
+    name: String(input.name || ''),
+    paths: Array.isArray(input.paths) ? input.paths.join(', ') : String(input.paths || ''),
+    containerName: String(input.containerName || ''),
+    raw: { ...input },
+  }))
   yamlContent.value = toYAML(resource)
 }
 onMounted(async () => {
@@ -1500,6 +1569,12 @@ onBeforeRouteLeave(async () => {
 .key-value-row {
   display: grid;
   grid-template-columns: 1fr 1.5fr 36px;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.log-input-row {
+  display: grid;
+  grid-template-columns: 1fr 1.5fr 1fr 36px;
   gap: 10px;
   margin-bottom: 10px;
 }

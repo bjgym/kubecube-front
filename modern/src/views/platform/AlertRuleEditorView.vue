@@ -111,7 +111,71 @@
                     value="critical" /></el-select></el-form-item
             ></el-form>
           </div>
-          <div class="expression-form">
+          <el-form v-if="activeRule.kind === 'alert'" label-position="top" class="mode-form"
+            ><el-form-item label="配置方式"
+              ><el-radio-group v-model="activeRule.mode"
+                ><el-radio-button value="normal">普通模式</el-radio-button
+                ><el-radio-button value="promql">表达式模式</el-radio-button></el-radio-group
+              ></el-form-item
+            ></el-form
+          >
+          <div v-if="activeRule.kind === 'alert' && activeRule.mode === 'normal'" class="normal-builder">
+            <div class="normal-grid">
+              <el-form label-position="top"
+                ><el-form-item label="维度"
+                  ><el-select v-model="activeRule.normal.dimension"
+                    ><el-option
+                      v-for="item in normalDimensions"
+                      :key="item.value"
+                      :label="item.label"
+                      :value="item.value" /></el-select></el-form-item></el-form
+              ><el-form v-if="activeRule.normal.dimension === 'workload'" label-position="top"
+                ><el-form-item label="工作负载类型"
+                  ><el-select v-model="activeRule.normal.scope"
+                    ><el-option label="Deployment" value="deployment" /><el-option
+                      label="StatefulSet"
+                      value="statefulset" /></el-select></el-form-item></el-form
+              ><el-form label-position="top"
+                ><el-form-item label="对象（target，逗号分隔）"
+                  ><el-input
+                    :model-value="activeRule.normal.targets.join(', ')"
+                    placeholder="留空表示全部对象"
+                    @update:model-value="updateTargets(activeRule, $event)" /></el-form-item></el-form
+              ><el-form label-position="top"
+                ><el-form-item label="条件关系"
+                  ><el-radio-group v-model="activeRule.normal.operation"
+                    ><el-radio-button value="or">满足任意条件</el-radio-button
+                    ><el-radio-button value="and">满足所有条件</el-radio-button></el-radio-group
+                  ></el-form-item
+                ></el-form
+              >
+            </div>
+            <div class="condition-heading">
+              <span>指标条件</span><el-button :icon="Plus" @click="addCondition(activeRule)">添加条件</el-button>
+            </div>
+            <div v-for="(condition, conditionIndex) in activeRule.normal.conditions" :key="conditionIndex" class="normal-condition">
+              <el-input v-model="condition.record" placeholder="指标 record，例如：container_cpu_usage" />
+              <el-select v-model="condition.operator" class="condition-operator"
+                ><el-option v-for="operator in normalOperators" :key="operator" :label="operator" :value="operator"
+              /></el-select>
+              <el-input v-model="condition.value" placeholder="阈值，例如：0.8" />
+              <el-button
+                text
+                type="danger"
+                :icon="Delete"
+                :disabled="activeRule.normal.conditions.length === 1"
+                aria-label="删除指标条件"
+                @click="removeCondition(activeRule, conditionIndex)"
+              />
+            </div>
+            <el-alert
+              v-if="normalRuleExpression(activeRule.normal)"
+              type="info"
+              :closable="false"
+              :title="`生成表达式：${normalRuleExpression(activeRule.normal)}`"
+            />
+          </div>
+          <div v-else class="expression-form">
             <label class="expression-label">PromQL 表达式（必填）</label
             ><el-input v-model="activeRule.expr" type="textarea" :rows="4" class="mono" placeholder="请输入 PromQL 表达式" />
           </div>
@@ -170,6 +234,14 @@ import { Delete, Plus, Refresh } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { resourceApi, type ResourceDefinition } from '@/api/resource'
+import {
+  emptyNormalRule,
+  normalDimensions,
+  normalOperators,
+  normalRuleExpression,
+  parseExtendInfo,
+  type NormalRule,
+} from '@/domain/alert-rule'
 
 interface KeyValue {
   key: string
@@ -185,6 +257,8 @@ interface EditRule {
   summary: string
   description: string
   runbookUrl: string
+  mode: 'normal' | 'promql'
+  normal: NormalRule
   labels: KeyValue[]
   annotations: KeyValue[]
   raw: Record<string, unknown>
@@ -231,6 +305,8 @@ const emptyRule = (): EditRule => ({
   summary: '',
   description: '',
   runbookUrl: '',
+  mode: 'normal',
+  normal: emptyNormalRule(),
   labels: [],
   annotations: [],
   raw: {},
@@ -303,20 +379,25 @@ async function loadRule() {
           name: group.name || '',
           interval: group.interval || '',
           raw: { ...group },
-          rules: (group.rules || []).map((rule) => ({
-            localId: nextId(),
-            kind: rule.record ? 'record' : 'alert',
-            name: rule.alert || rule.record || '',
-            expr: rule.expr || '',
-            duration: rule.for || '',
-            severity: rule.labels?.severity || 'info',
-            summary: rule.annotations?.summary || '',
-            description: rule.annotations?.description || '',
-            runbookUrl: rule.annotations?.runbook_url || '',
-            labels: entries(rule.labels, ['severity']),
-            annotations: entries(rule.annotations, ['summary', 'description', 'runbook_url']),
-            raw: { ...rule },
-          })),
+          rules: (group.rules || []).map((rule) => {
+            const normal = parseExtendInfo(rule.annotations?.extendInfo)
+            return {
+              localId: nextId(),
+              kind: rule.record ? 'record' : 'alert',
+              name: rule.alert || rule.record || '',
+              expr: rule.expr || '',
+              duration: rule.for || '',
+              severity: rule.labels?.severity || 'info',
+              summary: rule.annotations?.summary || '',
+              description: rule.annotations?.description || '',
+              runbookUrl: rule.annotations?.runbook_url || '',
+              mode: normal ? 'normal' : 'promql',
+              normal: normal || emptyNormalRule(),
+              labels: entries(rule.labels, ['severity']),
+              annotations: entries(rule.annotations, ['summary', 'description', 'runbook_url', 'extendInfo']),
+              raw: { ...rule },
+            }
+          }),
         }))
       : [emptyGroup()]
     groups.value.forEach((group) => {
@@ -352,6 +433,18 @@ function removeRule(group: EditGroup, index: number) {
     activeRuleIndex.value = Math.max(0, Math.min(activeRuleIndex.value, group.rules.length - 1))
   }
 }
+function updateTargets(rule: EditRule, value: string) {
+  rule.normal.targets = value
+    .split(',')
+    .map((target) => target.trim())
+    .filter(Boolean)
+}
+function addCondition(rule: EditRule) {
+  rule.normal.conditions.push({ record: '', operator: '>', value: '' })
+}
+function removeCondition(rule: EditRule, index: number) {
+  if (rule.normal.conditions.length > 1) rule.normal.conditions.splice(index, 1)
+}
 function cleanEntries(items: KeyValue[], title: string) {
   const usable = items.filter((item) => item.key.trim() || item.value)
   if (usable.some((item) => !item.key.trim())) throw new Error(`${title}存在未填写键的条目`)
@@ -371,7 +464,15 @@ function validateModel() {
     if (names.some((name) => !name)) throw new Error(`规则组“${group.name}”存在未命名规则`)
     if (new Set(names).size !== names.length) throw new Error(`规则组“${group.name}”中的规则名称不能重复`)
     group.rules.forEach((rule) => {
-      if (!rule.expr.trim()) throw new Error(`规则“${rule.name}”的 PromQL 不能为空`)
+      if (rule.kind === 'alert' && rule.mode === 'normal') {
+        if (!rule.normal.conditions.some((condition) => condition.record.trim())) {
+          throw new Error(`规则“${rule.name}”至少需要一个指标条件`)
+        }
+        if (rule.normal.conditions.some((condition) => condition.record.trim() && !condition.value.trim())) {
+          throw new Error(`规则“${rule.name}”的告警阈值不能为空`)
+        }
+        if (!normalRuleExpression(rule.normal)) throw new Error(`规则“${rule.name}”的普通模式条件不能为空`)
+      } else if (!rule.expr.trim()) throw new Error(`规则“${rule.name}”的 PromQL 不能为空`)
       cleanEntries(rule.labels, `规则“${rule.name}”的 Labels`)
       cleanEntries(rule.annotations, `规则“${rule.name}”的 Annotations`)
     })
@@ -402,11 +503,12 @@ function buildGroups() {
           if (rule.summary) annotations.summary = rule.summary
           if (rule.description) annotations.description = rule.description
           if (rule.runbookUrl) annotations.runbook_url = rule.runbookUrl
+          if (rule.mode === 'normal') annotations.extendInfo = JSON.stringify(rule.normal)
         }
         return {
           ...rest,
           [rule.kind]: rule.name.trim(),
-          expr: rule.expr.trim(),
+          expr: rule.kind === 'alert' && rule.mode === 'normal' ? normalRuleExpression(rule.normal) : rule.expr.trim(),
           ...(rule.kind === 'alert' && rule.duration.trim() ? { for: rule.duration.trim() } : {}),
           ...(Object.keys(labels).length ? { labels } : {}),
           ...(rule.kind === 'alert' && Object.keys(annotations).length ? { annotations } : {}),
@@ -559,6 +661,41 @@ watch(
 .expression-form {
   margin-top: -4px;
 }
+.mode-form {
+  margin-top: -4px;
+}
+.normal-builder {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--surface-subtle);
+}
+.normal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+}
+.normal-grid .el-select {
+  width: 100%;
+}
+.condition-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin: 8px 0 10px;
+  color: var(--text-regular);
+  font-size: 14px;
+}
+.normal-condition {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) 88px minmax(0, 1fr) 36px;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.normal-condition .el-button {
+  margin: 0;
+}
 .expression-label {
   display: block;
   margin-bottom: 8px;
@@ -584,7 +721,8 @@ watch(
   padding-bottom: 20px;
 }
 @media (max-width: 1050px) {
-  .rule-basic {
+  .rule-basic,
+  .normal-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
@@ -602,7 +740,9 @@ watch(
     align-items: flex-start;
     flex-direction: column;
   }
-  .rule-basic {
+  .rule-basic,
+  .normal-grid,
+  .normal-condition {
     grid-template-columns: 1fr;
   }
 }

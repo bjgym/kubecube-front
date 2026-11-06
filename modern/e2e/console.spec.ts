@@ -127,6 +127,24 @@ test('log search filters by log task against the Logseer endpoint', async ({ pag
   await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible()
 })
 
+test('LogConfig wizard edits matchFields and multiple inputs', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/logconfigs/create?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: '创建 LogConfig', exact: true })).toBeVisible()
+  await page.getByPlaceholder('例如：order-service').fill('multi-input-log')
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await page.getByRole('button', { name: '添加匹配字段', exact: true }).click()
+  await page.getByPlaceholder('匹配字段名，例如 app').fill('app')
+  await page.getByPlaceholder('匹配值，多个值用逗号分隔').fill('shop-web,shop-api')
+  await page.getByRole('button', { name: '添加输入源', exact: true }).click()
+  await page.getByPlaceholder('输入名称').fill('sidecar-logs')
+  await page.getByPlaceholder('路径，逗号分隔').fill('/var/log/sidecar/*.log')
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '确认资源声明', exact: true })).toBeVisible()
+})
+
 test('pod log tab renders the backend log object and honors the selected container', async ({ page }) => {
   await login(page)
   await page.goto(
@@ -212,6 +230,23 @@ test('PVC wizard loads real StorageClass options', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '确认资源声明', exact: true })).toBeVisible()
 })
 
+test('global alert rule supports a normal condition builder', async ({ page }) => {
+  await login(page)
+  await page.goto('/public/#/platform/PrometheusRule/production-shanghai/create')
+  await expect(page.getByRole('heading', { name: '创建全局告警规则', exact: true })).toBeVisible()
+  await page.getByPlaceholder('例如：platform-availability').fill('platform-availability')
+  await page.getByPlaceholder('例如：availability').fill('availability')
+  await page.getByPlaceholder('例如：HighErrorRate').fill('HighErrorRate')
+  await page.getByPlaceholder('留空表示全部对象').fill('shop-web')
+  await page.getByPlaceholder('指标 record，例如：container_cpu_usage').fill('container_cpu_usage')
+  await page.getByPlaceholder('阈值，例如：0.8').fill('0.8')
+  await expect(page.getByText('生成表达式：(container_cpu_usage{target=~"shop-web"}) > 0.8')).toBeVisible()
+  await page.getByText('表达式模式', { exact: true }).click()
+  await expect(page.getByPlaceholder('请输入 PromQL 表达式')).toBeVisible()
+  await page.getByText('普通模式', { exact: true }).click()
+  await expect(page.getByPlaceholder('指标 record，例如：container_cpu_usage')).toHaveValue('container_cpu_usage')
+})
+
 test('workload wizard builds env volumes mounts and init containers', async ({ page }) => {
   await login(page)
   await page.goto(
@@ -245,6 +280,29 @@ test('workload wizard builds env volumes mounts and init containers', async ({ p
   await expect(page.getByPlaceholder('变量名，例如 DATABASE_URL')).toHaveValue('DATABASE_URL')
   await expect(page.getByPlaceholder('挂载路径，例如 /data')).toHaveValue('/data')
   await expect(page.getByRole('tab', { name: /Init/ })).toHaveCount(1)
+})
+
+test('Pod detail can evict a pod through the management menu', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/pods/shop-web-00-x7d9f/info?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: 'shop-web-00-x7d9f', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '管理资源', exact: true }).click()
+  await page.getByRole('menuitem', { name: '驱逐 Pod', exact: true }).click()
+  await page.getByRole('button', { name: '确认驱逐', exact: true }).click()
+  await expect(page).toHaveURL(/control\/pods\/list/)
+})
+
+test('Service detail shows selector endpoints and matching pods', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/services/shop-web/info?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: 'shop-web', exact: true })).toBeVisible()
+  await expect(page.getByText('app=shop-web', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('10.244.2.11', { exact: true })).toBeVisible()
+  await expect(page.getByRole('link', { name: 'shop-web-00-x7d9f', exact: true })).toBeVisible()
 })
 
 test('Service wizard keeps multiple ports and advanced fields', async ({ page }) => {
@@ -377,8 +435,14 @@ test('Global alert config supports structured receiver editing', async ({ page }
   await page.getByPlaceholder('新接收人名称').fill('secondary-oncall')
   await page.getByRole('button', { name: '添加', exact: true }).click()
   await expect(page.locator('.receiver-list').getByText('secondary-oncall', { exact: true })).toBeVisible()
+  await page.getByPlaceholder('smtp.example.com:465').fill('smtp.example.com:465')
+  await page.getByPlaceholder('alert@example.com').fill('alert@example.com')
+  await page.getByPlaceholder('https://qyapi.weixin.qq.com/cgi-bin/').fill('https://qyapi.weixin.qq.com/cgi-bin/')
   await page.getByRole('button', { name: '保存配置', exact: true }).first().click()
   await expect(page.locator('.receiver-list').getByText('secondary-oncall', { exact: true })).toBeVisible()
+  await page.getByText('YAML', { exact: true }).click()
+  await expect(page.getByLabel('Alertmanager YAML 配置')).toHaveValue(/smtp_smarthost: smtp\.example\.com:465/)
+  await expect(page.getByLabel('Alertmanager YAML 配置')).toHaveValue(/wecom_api_url: https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\//)
 })
 
 test('Quick start exposes inline member assignment', async ({ page }) => {

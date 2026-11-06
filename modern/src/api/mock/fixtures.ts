@@ -251,6 +251,10 @@ export const resources: Record<string, KubeResource[]> = {
     kind: 'Pod',
     metadata: {
       ...metadata(`${index % 2 ? 'order-service' : 'shop-web'}-${String(index).padStart(2, '0')}-x7d9f`, 'online-shop', 4 + index),
+      labels: {
+        ...metadata(`${index % 2 ? 'order-service' : 'shop-web'}-${String(index).padStart(2, '0')}-x7d9f`).labels,
+        app: index % 2 ? 'order-service' : 'shop-web',
+      },
       ...(index % 2 === 0
         ? {
             ownerReferences: [
@@ -304,6 +308,22 @@ export const resources: Record<string, KubeResource[]> = {
       kind: 'Service',
       metadata: metadata('payment-gateway'),
       spec: { type: 'NodePort', clusterIP: '10.96.20.16', ports: [{ port: 443, nodePort: 31443, protocol: 'TCP' }] },
+    },
+  ],
+  endpoints: [
+    {
+      apiVersion: 'v1',
+      kind: 'Endpoints',
+      metadata: metadata('shop-web'),
+      subsets: [
+        {
+          addresses: [
+            { ip: '10.244.2.11', targetRef: { kind: 'Pod', name: 'shop-web-00-x7d9f' } },
+            { ip: '10.244.2.12', targetRef: { kind: 'Pod', name: 'shop-web-02-x7d9f' } },
+          ],
+          ports: [{ port: 8080, protocol: 'TCP' }],
+        },
+      ],
     },
   ],
   ingresses: [

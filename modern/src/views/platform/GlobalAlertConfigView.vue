@@ -95,6 +95,26 @@
             <el-form-item label="group_interval"><el-input v-model="structured.groupInterval" placeholder="5m" /></el-form-item>
             <el-form-item label="repeat_interval"><el-input v-model="structured.repeatInterval" placeholder="4h" /></el-form-item>
           </div>
+          <div class="global-heading">
+            <div>
+              <h3>全局通知</h3>
+              <p>SMTP 与 WeCom 凭据写入 global 段，未填写的字段不会覆盖已有 YAML。</p>
+            </div>
+          </div>
+          <div class="form-grid global-grid">
+            <el-form-item label="SMTP 服务器"><el-input v-model="structured.smtpHost" placeholder="smtp.example.com:465" /></el-form-item
+            ><el-form-item label="发件人"><el-input v-model="structured.smtpFrom" placeholder="alert@example.com" /></el-form-item
+            ><el-form-item label="SMTP 用户名"><el-input v-model="structured.smtpUsername" /></el-form-item
+            ><el-form-item label="SMTP 密码"
+              ><el-input v-model="structured.smtpPassword" type="password" show-password autocomplete="new-password" /></el-form-item
+            ><el-form-item label="SMTP TLS"><el-switch v-model="structured.smtpRequireTls" active-text="要求 TLS" /></el-form-item
+            ><el-form-item label="WeCom API URL"
+              ><el-input v-model="structured.wecomApiUrl" placeholder="https://qyapi.weixin.qq.com/cgi-bin/" /></el-form-item
+            ><el-form-item label="WeCom Corp ID"><el-input v-model="structured.wecomCorpId" /></el-form-item
+            ><el-form-item label="WeCom Corp Secret"
+              ><el-input v-model="structured.wecomCorpSecret" type="password" show-password autocomplete="new-password" /></el-form-item
+            ><el-form-item label="WeCom Agent ID"><el-input v-model="structured.wecomAgentId" /></el-form-item>
+          </div>
           <div class="receiver-heading">
             <div>
               <h3>接收人</h3>
@@ -195,7 +215,22 @@ const deleting = ref(false)
 const loadError = ref('')
 const saveError = ref('')
 const configMode = ref<'structured' | 'yaml'>('structured')
-const structured = reactive({ receiver: '', groupBy: '', groupWait: '', groupInterval: '', repeatInterval: '' })
+const structured = reactive({
+  receiver: '',
+  groupBy: '',
+  groupWait: '',
+  groupInterval: '',
+  repeatInterval: '',
+  smtpHost: '',
+  smtpFrom: '',
+  smtpUsername: '',
+  smtpPassword: '',
+  smtpRequireTls: true,
+  wecomApiUrl: '',
+  wecomCorpId: '',
+  wecomCorpSecret: '',
+  wecomAgentId: '',
+})
 const receiverNames = ref<string[]>([])
 const newReceiverName = ref('')
 const structuredError = ref('')
@@ -283,6 +318,16 @@ function loadStructured() {
     structured.groupWait = String(routeConfig.group_wait || '')
     structured.groupInterval = String(routeConfig.group_interval || '')
     structured.repeatInterval = String(routeConfig.repeat_interval || '')
+    const globalConfig = (config.global || {}) as Record<string, unknown>
+    structured.smtpHost = String(globalConfig.smtp_smarthost || '')
+    structured.smtpFrom = String(globalConfig.smtp_from || '')
+    structured.smtpUsername = String(globalConfig.smtp_auth_username || '')
+    structured.smtpPassword = String(globalConfig.smtp_auth_password || '')
+    structured.smtpRequireTls = globalConfig.smtp_require_tls !== false
+    structured.wecomApiUrl = String(globalConfig.wecom_api_url || '')
+    structured.wecomCorpId = String(globalConfig.wecom_corpid || '')
+    structured.wecomCorpSecret = String(globalConfig.wecom_corpsecret || '')
+    structured.wecomAgentId = String(globalConfig.wecom_agent_id || '')
     receiverNames.value = (config.receivers || []).map((receiver) => String(receiver.name || '')).filter(Boolean)
     if (!structured.receiver) structured.receiver = receiverNames.value[0] || ''
   } catch (error) {
@@ -308,6 +353,23 @@ function applyStructured() {
   }
   const existing = new Map((config.receivers || []).map((receiver) => [String(receiver.name || ''), receiver]))
   config.receivers = names.map((name) => existing.get(name) || { name })
+  const globalConfig = { ...((config.global || {}) as Record<string, unknown>) }
+  const fields: Array<[string, string]> = [
+    ['smtp_smarthost', structured.smtpHost],
+    ['smtp_from', structured.smtpFrom],
+    ['smtp_auth_username', structured.smtpUsername],
+    ['smtp_auth_password', structured.smtpPassword],
+    ['wecom_api_url', structured.wecomApiUrl],
+    ['wecom_corpid', structured.wecomCorpId],
+    ['wecom_corpsecret', structured.wecomCorpSecret],
+    ['wecom_agent_id', structured.wecomAgentId],
+  ]
+  fields.forEach(([key, value]) => {
+    if (value.trim()) globalConfig[key] = value.trim()
+    else delete globalConfig[key]
+  })
+  globalConfig.smtp_require_tls = structured.smtpRequireTls
+  config.global = globalConfig
   configYaml.value = toYAML(config)
 }
 function addReceiver() {
@@ -504,6 +566,22 @@ onMounted(loadClusters)
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 4px 18px;
+}
+.global-heading {
+  margin: 24px 0 12px;
+  padding-top: 18px;
+  border-top: 1px solid var(--border-light);
+}
+.global-heading h3 {
+  font-size: 15px;
+}
+.global-heading p {
+  margin-top: 4px;
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.global-grid {
+  margin-bottom: 4px;
 }
 .receiver-heading {
   display: flex;
