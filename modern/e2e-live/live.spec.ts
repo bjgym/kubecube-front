@@ -157,6 +157,29 @@ async function ensureLiveBinding(page: Page, user: string, namespace: string, ro
   expect(response.ok()).toBeTruthy()
 }
 
+test('live node drain flow on a disposable node', async ({ page }) => {
+  test.setTimeout(180_000)
+  const nodePath = '/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/nodes'
+  const nodeName = 'live-drain-node'
+  await login(page)
+  await page.request.delete(`${nodePath}/${nodeName}`)
+  const created = await page.request.post(nodePath, {
+    data: { apiVersion: 'v1', kind: 'Node', metadata: { name: nodeName }, spec: {} },
+  })
+  expect(created.ok(), `node create: ${created.status()} ${await created.text()}`).toBeTruthy()
+  try {
+    await page.goto('/public/#/platform/cluster/pivot-cluster/node')
+    const row = page.locator('.el-table__row').filter({ hasText: nodeName })
+    await expect(row).toBeVisible({ timeout: 90_000 })
+    await row.getByRole('button', { name: '更多', exact: true }).click()
+    await page.getByRole('menuitem', { name: '平滑迁移', exact: true }).click()
+    await page.getByRole('button', { name: '开始迁移', exact: true }).click()
+    await expect(page.getByText(/平滑迁移流程已完成|没有需要驱逐的 Pod/).first()).toBeVisible({ timeout: 60_000 })
+  } finally {
+    await page.request.delete(`${nodePath}/${nodeName}`)
+  }
+})
+
 test('live four-role identities from the backend', async ({ browser, page }) => {
   test.setTimeout(180_000)
   const secret = 'KubeCube@2026'
