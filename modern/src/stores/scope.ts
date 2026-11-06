@@ -13,6 +13,7 @@ export interface ScopeQuery {
   [key: string]: string | undefined
 }
 
+const scopeKeys = ['tenant', 'project', 'cluster', 'namespace'] as const
 const resourcePermissions = [
   'dashboards',
   'deployments',
@@ -43,6 +44,7 @@ export const useScopeStore = defineStore('scope', () => {
   const loading = ref(false)
   const initialized = ref(false)
   let generation = 0
+  let applying: Promise<void> | null = null
 
   const controlClusters = computed(() => clusters.value.filter((item) => !item.isMemberCluster))
   const controlCluster = computed(() => controlClusters.value[0]?.clusterName || '')
@@ -143,6 +145,21 @@ export const useScopeStore = defineStore('scope', () => {
     }
   }
 
+  async function applyRouteScope(requested: ScopeQuery = {}) {
+    if (applying) await applying.catch(() => undefined)
+    if (initialized.value && scopeKeys.every((key) => !requested[key] || requested[key] === scopeValue(key))) return
+    const run = initialize(requested)
+    applying = run
+    try {
+      await run
+    } finally {
+      if (applying === run) applying = null
+    }
+  }
+
+  function scopeValue(key: (typeof scopeKeys)[number]): string {
+    return { tenant: tenant.value, project: project.value, cluster: cluster.value, namespace: namespace.value }[key]
+  }
   async function selectTenant(value: string) {
     tenant.value = value
     project.value = ''
@@ -205,6 +222,7 @@ export const useScopeStore = defineStore('scope', () => {
     currentProject,
     currentCluster,
     initialize,
+    applyRouteScope,
     loadNamespaces,
     loadPermissions,
     selectTenant,

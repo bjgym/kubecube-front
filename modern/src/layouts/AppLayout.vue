@@ -43,41 +43,27 @@ const showScope = computed(() => route.path.startsWith('/control') || route.name
 const resize = () => {
   width.value = window.innerWidth
 }
-async function initializeScope() {
+async function syncScopeFromRoute() {
   if (!showScope.value) return
-  await scope.initialize(pickScopeQuery(route.query) as never)
-  if (route.path.startsWith('/control')) await router.replace({ query: { ...route.query, ...scope.query } })
+  await scope.applyRouteScope(pickScopeQuery(route.query) as never)
+  if (!route.path.startsWith('/control')) return
+  const query = { ...route.query, ...scope.query }
+  const keys = ['tenant', 'project', 'cluster', 'namespace'] as const
+  if (keys.some((key) => String(query[key] || '') !== String(scope[key] || ''))) {
+    await router.replace({ path: route.path, query })
+  }
 }
 onMounted(async () => {
   window.addEventListener('resize', resize)
   await router.isReady()
-  if (showScope.value) await initializeScope()
+  await syncScopeFromRoute()
 })
 onBeforeUnmount(() => window.removeEventListener('resize', resize))
-watch(showScope, async (visible) => {
-  if (visible && !scope.initialized) await initializeScope()
-})
-watch(
-  () => route.path,
-  async (path, previous) => {
-    ui.mobileSidebarOpen = false
-    if (path.startsWith('/control') && !previous.startsWith('/control')) {
-      if (!scope.initialized) await scope.initialize(pickScopeQuery(route.query) as never)
-    }
-  },
-)
 watch(
   () => route.fullPath,
-  async () => {
-    if (!showScope.value || !scope.initialized || scope.loading) return
-    const requested = pickScopeQuery(route.query) as Record<string, string | undefined>
-    const keys = ['tenant', 'project', 'cluster', 'namespace'] as const
-    if (!keys.some((key) => requested[key] && requested[key] !== scope[key])) return
-    await scope.initialize(requested as never)
-    const query = { ...route.query, ...scope.query }
-    if (keys.some((key) => String(query[key] || '') !== String(scope[key] || ''))) {
-      await router.replace({ path: route.path, query })
-    }
+  () => {
+    ui.mobileSidebarOpen = false
+    void syncScopeFromRoute()
   },
 )
 </script>

@@ -19,3 +19,7 @@ export function locationFromHash(hash: string): StoredLocation {
 export function isAuthLocation(location: StoredLocation): boolean {
   return location.path === '/login' || location.path.startsWith('/login/')
 }
+
+export function isSafeInternalPath(path: string): boolean {
+  return path.startsWith('/') && !path.startsWith('//') && path !== '/login' && !path.startsWith('/login?')
+}

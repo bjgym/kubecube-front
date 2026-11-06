@@ -2,6 +2,7 @@ import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-rou
 import AppLayout from '@/layouts/AppLayout.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useFeatureStore } from '@/stores/feature'
+import { createUnauthorizedGate } from '@/utils/unauthorized'
 import { useScopeStore } from '@/stores/scope'
 import { hasAnyRole } from '@/config/access'
 import { getResourceConfig } from '@/config/resources'
@@ -287,7 +288,9 @@ function storageLikeSaveLastLocation(fullPath: string) {
   }
 }
 
+const unauthorizedGate = createUnauthorizedGate()
 window.addEventListener('kubecube:unauthorized', () => {
+  if (!unauthorizedGate()) return
   const auth = useAuthStore()
   auth.logout()
   useScopeStore().reset()

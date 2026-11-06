@@ -178,6 +178,7 @@ import { getResourceConfig } from '@/config/resources'
 import { useAuthStore } from '@/stores/auth'
 import { useScopeStore } from '@/stores/scope'
 import { useFeatureStore } from '@/stores/feature'
+import { navigateToScope } from '@/router/scope-query'
 import type { ClusterInfo, NamespaceInfo } from '@/types/api'
 import { formatBytes, formatDate, formatNumber } from '@/utils/format'
 
@@ -486,10 +487,10 @@ function clearFilters() {
 }
 async function openConsole(card: NamespaceCard) {
   const path = features.monitoring ? '/control/dashboard' : '/control/deployments/list'
-  await router.push({ path, query: { ...scope.query, cluster: card.cluster, namespace: card.name } })
+  await navigateToScope(router, path, scope.query, { cluster: card.cluster, namespace: card.name })
 }
 async function openResource(card: NamespaceCard, resource: ResourceKey) {
-  await router.push({ path: `/control/${resource}/list`, query: { ...scope.query, cluster: card.cluster, namespace: card.name } })
+  await navigateToScope(router, `/control/${resource}/list`, scope.query, { cluster: card.cluster, namespace: card.name })
 }
 watch([() => scope.tenant, () => scope.project], () => {
   generation++

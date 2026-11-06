@@ -204,9 +204,28 @@
           >
           <template v-else-if="config.key === 'services'"
             ><div class="form-grid">
-              <el-form-item label="服务类型"
+              <el-form-item label="目标工作负载（可选）"
+                ><el-select
+                  v-model="form.serviceTarget"
+                  clearable
+                  filterable
+                  :loading="serviceWorkloadsLoading"
+                  placeholder="选择 Deployment / StatefulSet / DaemonSet"
+                  @change="applyServiceTarget"
+                  ><el-option
+                    v-for="option in serviceWorkloadOptions"
+                    :key="option.value"
+                    :label="`${option.kind} / ${option.name}`"
+                    :value="option.value" /></el-select
+                ><span class="form-help"
+                  >选择后按目标工作负载的 Pod 模板标签重建 selector；编辑时留空则完整保留原 selector。</span
+                ></el-form-item
+              ><el-form-item label="服务类型"
                 ><el-select v-model="form.serviceType"
-                  ><el-option value="ClusterIP" /><el-option value="NodePort" /><el-option value="LoadBalancer" /></el-select></el-form-item
+                  ><el-option value="ClusterIP" /><el-option value="NodePort" /><el-option value="LoadBalancer" /><el-option
+                    value="ExternalName" /></el-select></el-form-item
+              ><el-form-item v-if="form.serviceType === 'ExternalName'" label="ExternalName"
+                ><el-input v-model="form.serviceExternalName" placeholder="shop.example.com" /></el-form-item
               ><el-form-item label="Headless 服务"><el-switch v-model="form.serviceHeadless" /></el-form-item
               ><el-form-item label="会话保持"
                 ><el-select v-model="form.serviceSessionAffinity"
@@ -217,7 +236,7 @@
                 ><el-input v-model="form.serviceExternalIps" placeholder="203.0.113.10, 203.0.113.11" /></el-form-item
               ><el-form-item label="类型说明"
                 ><span class="form-help"
-                  >Headless 会设置 clusterIP=None；修改已有 ClusterIP 由 Kubernetes 拒绝不可变字段。</span
+                  >Headless 会设置 clusterIP=None；ExternalName 不生成 selector；修改已有 ClusterIP 由 Kubernetes 拒绝不可变字段。</span
                 ></el-form-item
               >
             </div>
@@ -492,7 +511,7 @@ import NetworkPolicyForm from '@/components/workload/NetworkPolicyForm.vue'
 import { resourceApi } from '@/api/resource'
 import { getResourceConfig, type ResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
-import { mergeServiceSpec } from '@/domain/service'
+import { mergeServiceSpec, serviceSelectorFromWorkload } from '@/domain/service'
 import { mergeIngressSpec, type IngressRuleForm, type IngressTlsForm } from '@/domain/ingress'
 import { mergeNetworkPolicySpec, networkPolicyToForm, newNetworkPolicyForm } from '@/domain/network-policy'
 import {
@@ -651,6 +670,8 @@ const form: any = reactive({
   registryPassword: '',
   registryEmail: '',
   serviceType: 'ClusterIP',
+  serviceTarget: '',
+  serviceExternalName: '',
   serviceSelector: [] as KeyValue[],
   servicePorts: [{ name: 'http', port: 80, targetPort: 8080, protocol: 'TCP' as const }] as Array<{
     name: string
@@ -701,6 +722,53 @@ const form: any = reactive({
   logLabelSelector: [] as KeyValue[],
   logFields: [] as KeyValue[],
 })
+interface ServiceWorkloadOption {
+  value: string
+  kind: string
+  name: string
+  selector: Record<string, string>
+}
+const serviceWorkloadOptions = ref<ServiceWorkloadOption[]>([])
+const serviceWorkloadsLoading = ref(false)
+async function loadServiceWorkloads() {
+  if (config.value.key !== 'services' || !contextCluster.value || !contextNamespace.value) return
+  serviceWorkloadsLoading.value = true
+  try {
+    const definitions = ['deployments', 'statefulsets', 'daemonsets']
+      .map((key) => getResourceConfig(key))
+      .filter((definition): definition is ResourceConfig => Boolean(definition))
+    const responses = await Promise.all(
+      definitions.map((definition) =>
+        resourceApi.list(definition, { cluster: contextCluster.value, namespace: contextNamespace.value }, { pageNum: 1, pageSize: 500 }),
+      ),
+    )
+    serviceWorkloadOptions.value = responses.flatMap((response, index) =>
+      (response.items || []).flatMap((item) => {
+        const selector = serviceSelectorFromWorkload((item.spec || {}) as Record<string, any>)
+        const entries = Object.entries(selector)
+        if (!entries.length) return []
+        return [
+          {
+            value: `${definitions[index]!.kind}/${item.metadata.name}`,
+            kind: definitions[index]!.kind,
+            name: item.metadata.name,
+            selector,
+          },
+        ]
+      }),
+    )
+  } catch {
+    serviceWorkloadOptions.value = []
+  } finally {
+    serviceWorkloadsLoading.value = false
+  }
+}
+function applyServiceTarget(value: string) {
+  if (!value) return
+  const option = serviceWorkloadOptions.value.find((item) => item.value === value)
+  if (!option) return
+  form.serviceSelector = Object.entries(option.selector).map(([key, selectorValue]) => ({ key, value: selectorValue }))
+}
 const resourceSectionTitle = computed(() => (isWorkload.value ? '容器与资源' : config.value.shortTitle + ' 配置'))
 const volumeNames = computed(() =>
   [
@@ -924,6 +992,7 @@ function buildResource(): KubeResource {
         .filter(Boolean),
       sessionAffinity: form.serviceSessionAffinity,
       sessionAffinitySeconds: form.serviceSessionAffinitySeconds,
+      externalName: form.serviceExternalName,
     })
   } else if (config.value.key === 'ingresses') {
     base.spec = mergeIngressSpec((base.spec || {}) as Record<string, any>, {
@@ -1090,6 +1159,7 @@ function removeContainer(name: string | number) {
 function fillForm(resource: KubeResource) {
   rawResource.value = resource
   form.name = resource.metadata.name
+  nameError.value = ''
   form.labels = Object.entries(resource.metadata.labels || {}).map(([key, value]) => ({ key, value }))
   if (!form.labels.length) form.labels = [{ key: 'app', value: form.name }]
   const spec = resource.spec as Record<string, any> | undefined
@@ -1129,6 +1199,8 @@ function fillForm(resource: KubeResource) {
     }
   }
   form.serviceType = String(spec?.type || 'ClusterIP')
+  form.serviceTarget = ''
+  form.serviceExternalName = String(spec?.externalName || '')
   form.serviceSelector = Object.entries((spec?.selector || {}) as Record<string, string>).map(([key, value]) => ({ key, value }))
   form.servicePorts = (Array.isArray(spec?.ports) ? spec.ports : []).map((port: Record<string, any>) => ({
     name: String(port.name || ''),
@@ -1235,6 +1307,7 @@ onMounted(async () => {
     form.labels[0]!.value = form.name
     yamlContent.value = previewYaml.value
   }
+  if (config.value.key === 'services') await loadServiceWorkloads()
   await nextTick()
   loaded.value = true
   dirty.value = false

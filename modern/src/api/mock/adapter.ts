@@ -882,7 +882,7 @@ export const mockAdapter: AxiosAdapter = async (config) => {
     const requested = String(record(config.params).containerName || '')
     const containerName = containers.some((item) => item.name === requested) ? requested : String(containers[0]?.name || requested || 'app')
     const previous = String(record(config.params).previous) === 'true'
-    const count = Math.min(30, Math.max(1, Math.abs(Number(record(config.params).offsetFrom) || 30)))
+    const count = Math.min(200, Math.max(1, Math.abs(Number(record(config.params).offsetFrom) || 30)))
     const timestamp = new Date().toISOString()
     return response(config, {
       info: {
@@ -899,7 +899,7 @@ export const mockAdapter: AxiosAdapter = async (config) => {
         logFilePosition: 'end',
       },
       logs: Array.from({ length: count }, (_, index) => ({
-        timestamp,
+        timestamp: new Date(1700000000000 + index * 1000).toISOString(),
         content: `INFO ${previous ? 'previous ' : ''}container=${containerName} request completed id=req_${index + 1} status=200`,
       })),
     })

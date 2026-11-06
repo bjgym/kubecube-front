@@ -15,6 +15,13 @@ export interface ServiceSpecInput {
   externalIPs: string[]
   sessionAffinity: 'None' | 'ClientIP'
   sessionAffinitySeconds?: number
+  externalName?: string
+}
+
+export function serviceSelectorFromWorkload(spec: Record<string, any>): Record<string, string> {
+  const selector = spec?.selector?.matchLabels || spec?.selector || {}
+  if (!selector || typeof selector !== 'object' || Array.isArray(selector)) return {}
+  return Object.fromEntries(Object.entries(selector).filter(([key, value]) => key && typeof value === 'string')) as Record<string, string>
 }
 
 export function mergeServiceSpec(spec: Record<string, any>, input: ServiceSpecInput): Record<string, any> {
@@ -37,9 +44,12 @@ export function mergeServiceSpec(spec: Record<string, any>, input: ServiceSpecIn
       : { sessionAffinityConfig: undefined }),
   }
   if (input.headless) next.clusterIP = 'None'
+  if (input.type === 'ExternalName' && input.externalName) next.externalName = input.externalName
+  else delete next.externalName
   if (input.externalIPs.length) next.externalIPs = input.externalIPs
   else delete next.externalIPs
-  if (Object.keys(selector).length || input.editing) next.selector = selector
+  if (input.type === 'ExternalName') delete next.selector
+  else if (Object.keys(selector).length || input.editing) next.selector = selector
   else delete next.selector
   if (!next.sessionAffinityConfig) delete next.sessionAffinityConfig
   return next

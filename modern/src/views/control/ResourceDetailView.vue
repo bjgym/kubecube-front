@@ -307,11 +307,11 @@
               /></el-select>
             </div>
             <div>
-              <el-button text :disabled="logsLoading || logWindowLines >= 5000" @click="loadOlderLogs">加载更多历史</el-button
-              ><el-button text :disabled="logsLoading || logWindowLines <= 500" @click="refreshLatestLogs">回到最新</el-button
-              ><el-checkbox v-model="logPrevious" :disabled="logsLoading" @change="loadLogs">上一容器</el-checkbox
+              <el-button text :disabled="logsLoading || !logSelection || logLines.length >= 5000" @click="loadOlderLogs">加载更早</el-button
+              ><el-button text :disabled="logsLoading" @click="refreshLatestLogs">加载更新</el-button
+              ><el-checkbox v-model="logPrevious" :disabled="logsLoading" @change="onLogPreviousChange">上一容器</el-checkbox
               ><el-checkbox v-model="logAutoRefresh">自动刷新</el-checkbox
-              ><el-button :loading="logsLoading" @click="loadLogs"
+              ><el-button :loading="logsLoading" @click="loadLogs()"
                 ><el-icon><Refresh /></el-icon>刷新</el-button
               ><el-button @click="openLogShell"
                 ><el-icon><Monitor /></el-icon>容器终端</el-button
@@ -322,11 +322,12 @@
             <div class="log-viewer__header">
               <span
                 ><i :class="{ live: logAutoRefresh }" />{{
-                  logsLoading ? '正在读取日志' : `容器 ${logInfo?.containerName || logContainer || '—'} · 最近 ${logWindowLines} 行`
+                  logsLoading ? '正在读取日志' : `容器 ${logInfo?.containerName || logContainer || '—'} · 已加载 ${logLines.length} 行`
                 }}</span
               ><span>{{ logLineCount }} 行<template v-if="logInfo?.truncated"> · 已达后端读取上限</template></span>
             </div>
-            <pre>{{ logContent || '暂无日志。请选择 Pod 和容器后刷新。' }}</pre>
+            <el-alert v-if="logError" :title="logError" type="error" :closable="false" show-icon class="log-error" />
+            <pre ref="logViewer">{{ logContent || '暂无日志。请选择 Pod 和容器后刷新。' }}</pre>
           </div></template
         >
 
@@ -449,7 +450,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { ArrowDown, ArrowRight, Document, Monitor, Refresh, Setting } from '@element-plus/icons-vue'
@@ -464,9 +465,9 @@ import { getResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 import { formatDate } from '@/utils/format'
-import { formatPodLogs, podLogQuery } from '@/utils/pod-log'
+import { formatPodLogs, mergeOlderLogs, olderPodLogQuery, podLogQuery } from '@/utils/pod-log'
 import { fromYAML, toYAML } from '@/utils/yaml'
-import type { PodLogDetails, PodLogInfo } from '@/api/resource'
+import type { PodLogDetails, PodLogInfo, PodLogLine, PodLogSelection } from '@/api/resource'
 import type { KubeResource } from '@/types/api'
 type EventResource = KubeResource & {
   type?: string
@@ -529,9 +530,14 @@ const logContainer = ref('')
 const logContent = ref('')
 const logDetails = ref<PodLogDetails>()
 const logInfo = computed<PodLogInfo | undefined>(() => logDetails.value?.info)
-const logLineCount = computed(() => logDetails.value?.logs?.length || 0)
+const logLineCount = computed(() => logLines.value.length)
 const logsLoading = ref(false)
 const logAutoRefresh = ref(false)
+const logSelection = ref<PodLogSelection>()
+const logLines = ref<PodLogLine[]>([])
+const logError = ref('')
+const logViewer = ref<HTMLElement>()
+const LOG_PAGE_SIZE = 100
 const logPrevious = ref(false)
 const externalDialogOpen = ref(false)
 const scaleOpen = ref(false)
@@ -553,7 +559,6 @@ const eventScope = ref<'resource' | 'pod'>('resource')
 const eventPod = ref('')
 const eventTypeFilter = ref('')
 const conditionPod = ref('')
-const logWindowLines = ref(500)
 let externalRequestId = 0
 const context = computed(() => ({ cluster: scope.cluster, namespace: scope.namespace, name: instanceName.value }))
 const writeAllowed = computed(() => scope.canWrite(config.value.key) || scope.canWrite(config.value.plural))
@@ -1051,6 +1056,7 @@ async function onCommand(command: string) {
 }
 function showLogs(row: KubeResource) {
   logPod.value = row.metadata.name
+  resetLogWindow()
   changeTab('log')
 }
 function openContainerShell(row: KubeResource) {
@@ -1060,42 +1066,59 @@ function openContainerShell(row: KubeResource) {
 function openLogShell() {
   if (logPod.value) ui.openShell(logPod.value, logContainer.value || 'app')
 }
+function resetLogWindow() {
+  logSelection.value = undefined
+  logLines.value = []
+  logContent.value = ''
+  logError.value = ''
+}
 function onLogPodChange() {
   const pod = relatedPods.value.find((item) => item.metadata.name === logPod.value)
   logContainer.value = (pod?.spec as Record<string, any>)?.containers?.[0]?.name || 'app'
-  logWindowLines.value = 500
   logPrevious.value = false
+  resetLogWindow()
   loadLogs()
 }
 function onLogContainerChange() {
-  logWindowLines.value = 500
   logPrevious.value = false
+  resetLogWindow()
   loadLogs()
 }
-async function loadLogs() {
+function onLogPreviousChange() {
+  resetLogWindow()
+  loadLogs()
+}
+async function loadLogs(mode: 'latest' | 'older' = 'latest') {
   if (!logPod.value) return
+  const viewer = logViewer.value
+  const distanceFromBottom = viewer ? viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight : 0
   logsLoading.value = true
+  logError.value = ''
   try {
-    const details = await resourceApi.podLogs(
-      scope.cluster,
-      scope.namespace,
-      logPod.value,
-      podLogQuery(logContainer.value, logWindowLines.value, logPrevious.value),
-    )
+    const query =
+      mode === 'older' && logSelection.value
+        ? olderPodLogQuery(logContainer.value, logSelection.value, LOG_PAGE_SIZE, logPrevious.value)
+        : podLogQuery(logContainer.value, LOG_PAGE_SIZE, logPrevious.value)
+    const details = await resourceApi.podLogs(scope.cluster, scope.namespace, logPod.value, query)
+    const lines = mode === 'older' ? mergeOlderLogs(logLines.value, details.logs) : details.logs
     logDetails.value = details
-    logContent.value = formatPodLogs(details, true)
+    logSelection.value = details.selection
+    logLines.value = lines
+    logContent.value = formatPodLogs({ ...details, logs: lines }, true)
+  } catch (error) {
+    logError.value = `日志加载失败：${error instanceof Error ? error.message : '请求失败，请稍后重试'}`
   } finally {
     logsLoading.value = false
+    await nextTick()
+    if (viewer) viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight - distanceFromBottom)
   }
 }
 async function loadOlderLogs() {
-  logWindowLines.value = Math.min(5000, logWindowLines.value + 1000)
-  await loadLogs()
+  if (!logSelection.value || logLines.value.length >= 5000) return
+  await loadLogs('older')
 }
 async function refreshLatestLogs() {
-  logWindowLines.value = 500
-  logPrevious.value = false
-  await loadLogs()
+  await loadLogs('latest')
 }
 watch(
   [instanceName, () => config.value.key, () => scope.key],

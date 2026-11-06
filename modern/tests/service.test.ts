@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { mergeServiceSpec, type ServicePortForm } from '@/domain/service'
+import { mergeServiceSpec, serviceSelectorFromWorkload, type ServicePortForm } from '@/domain/service'
 
 const base = {
   type: 'ClusterIP',
@@ -65,5 +65,25 @@ describe('mergeServiceSpec', () => {
       sessionAffinity: 'ClientIP',
       sessionAffinityConfig: { clientIP: { timeoutSeconds: 3600 } },
     })
+  })
+
+  it('uses ExternalName without a selector and preserves an edited selector otherwise', () => {
+    const external = mergeServiceSpec(base, {
+      ...defaults,
+      type: 'ExternalName',
+      externalName: 'shop.example.com',
+    })
+    expect(external).toMatchObject({ type: 'ExternalName', externalName: 'shop.example.com' })
+    expect(external).not.toHaveProperty('selector')
+    expect(mergeServiceSpec(base, defaults).selector).toEqual({ app: 'shop-web', tier: 'frontend' })
+  })
+
+  it('derives the selector from a workload pod template labels', () => {
+    expect(serviceSelectorFromWorkload({ selector: { matchLabels: { app: 'shop-web', tier: 'frontend' } } })).toEqual({
+      app: 'shop-web',
+      tier: 'frontend',
+    })
+    expect(serviceSelectorFromWorkload({ selector: { app: 'orders' } })).toEqual({ app: 'orders' })
+    expect(serviceSelectorFromWorkload({ selector: {} })).toEqual({})
   })
 })

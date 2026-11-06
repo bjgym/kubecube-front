@@ -205,6 +205,7 @@ import { Connection, DataAnalysis, Grid, InfoFilled, Key, Lock, Loading, Right, 
 import AppLogo from '@/components/AppLogo.vue'
 import { accountFromLogin, authApi, userApi } from '@/api/auth'
 import { useAuthStore } from '@/stores/auth'
+import { isSafeInternalPath, splitInternalLocation } from '@/utils/last-location'
 import { storage } from '@/utils/storage'
 
 interface SsoProvider {
@@ -298,10 +299,6 @@ function firstQueryValue(value: unknown): string {
   return typeof value === 'string' ? value : Array.isArray(value) && typeof value[0] === 'string' ? value[0] : ''
 }
 
-function isSafeInternalPath(path: string): boolean {
-  return path.startsWith('/') && !path.startsWith('//') && path !== '/login' && !path.startsWith('/login?')
-}
-
 function requestedDestination(): string | null {
   const redirect = firstQueryValue(route.query.redirect)
   return isSafeInternalPath(redirect) ? redirect : null
@@ -320,7 +317,7 @@ function roleDestination(): string {
 async function navigateAfterLogin() {
   const redirect = requestedDestination()
   const previous = previousDestination()
-  const destination = redirect || previous || roleDestination()
+  const destination = redirect ? splitInternalLocation(redirect) : previous || { path: roleDestination(), query: {} }
   storage.remove('lastlocation')
   await router.replace(destination)
 }
