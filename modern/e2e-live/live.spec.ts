@@ -10,20 +10,24 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: `artifacts/live/${name}.png`, fullPage: true })
 }
 
-async function login(page: Page) {
+async function loginAs(page: Page, name: string, secret: string) {
   for (let attempt = 0; attempt < 2; attempt++) {
     await page.goto('/public/#/login')
-    await page.getByPlaceholder('请输入账号').fill(userName)
-    await page.getByPlaceholder('请输入密码').fill(password)
+    await page.getByPlaceholder('请输入账号').fill(name)
+    await page.getByPlaceholder('请输入密码').fill(secret)
     await page.getByRole('button', { name: /登\s*录/ }).click()
     try {
       await expect(page).not.toHaveURL(/#\/login/, { timeout: 45_000 })
-      await page.waitForTimeout(800)
+      await page.waitForTimeout(1500)
       return
     } catch (error) {
       if (attempt === 1) throw error
     }
   }
+}
+
+async function login(page: Page) {
+  await loginAs(page, userName, password)
 }
 
 test('live login and cross-cluster namespace overview', async ({ page }) => {
