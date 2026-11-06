@@ -11,17 +11,19 @@ async function screenshot(page: Page, name: string) {
 }
 
 async function loginAs(page: Page, name: string, secret: string) {
-  for (let attempt = 0; attempt < 2; attempt++) {
-    await page.goto('/public/#/login')
-    await page.getByPlaceholder('请输入账号').fill(name)
-    await page.getByPlaceholder('请输入密码').fill(secret)
-    await page.getByRole('button', { name: /登\s*录/ }).click()
+  for (let attempt = 0; attempt < 3; attempt++) {
     try {
+      await page.goto('/public/#/login')
+      await page.waitForTimeout(300)
+      await page.getByPlaceholder('请输入账号').fill(name)
+      await page.getByPlaceholder('请输入密码').fill(secret)
+      await page.getByRole('button', { name: /登\s*录/ }).click()
       await expect(page).not.toHaveURL(/#\/login/, { timeout: 45_000 })
       await page.waitForTimeout(1500)
       return
     } catch (error) {
-      if (attempt === 1) throw error
+      if (attempt === 2) throw error
+      await page.waitForTimeout(1000)
     }
   }
 }
@@ -121,6 +123,10 @@ test('live platform administration pages load real data', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.goto('/public/#/platform/cluster/pivot-cluster/info')
   await expect(page.getByRole('heading', { name: /pivot-cluster/ })).toBeVisible({ timeout: 90_000 })
+  await page.goto('/public/#/platform/cluster/pivot-cluster/node')
+  await expect(page.locator('.el-table').first()).toBeVisible({ timeout: 90_000 })
+  await page.goto('/public/#/platform/cluster/pivot-cluster/storageclass')
+  await expect(page.locator('.el-table').first()).toBeVisible({ timeout: 90_000 })
   await screenshot(page, '07-live-platform-admin')
 })
 
@@ -377,6 +383,58 @@ test('live container terminal connects through WebConsole', async ({ page }) => 
   await page.getByRole('button', { name: '打开终端', exact: true }).click()
   await expect(page.getByText('已连接', { exact: true })).toBeVisible({ timeout: 90_000 })
   await screenshot(page, '09-live-terminal')
+})
+
+test('live concurrent 401 responses redirect once', async ({ page }) => {
+  test.setTimeout(120_000)
+  await login(page)
+  await page.context().clearCookies()
+  let loginNavigations = 0
+  page.on('framenavigated', (frame) => {
+    if (frame === page.mainFrame() && frame.url().includes('/#/login')) loginNavigations++
+  })
+  await page.goto('/public/#/namespace')
+  await expect(page).toHaveURL(/#\/login/, { timeout: 60_000 })
+  await page.waitForTimeout(3000)
+  expect(loginNavigations).toBe(1)
+})
+
+test('live identity failure can be retried', async ({ page }) => {
+  test.setTimeout(120_000)
+  let failed = false
+  await page.route('**/api/v1/cube/authorization/identities*', async (route) => {
+    if (!failed) {
+      failed = true
+      await route.fulfill({ status: 500, contentType: 'application/json', body: '{"message":"temporary"}' })
+      return
+    }
+    await route.continue()
+  })
+  await page.goto('/public/#/login')
+  await page.getByPlaceholder('请输入账号').fill(userName)
+  await page.getByPlaceholder('请输入密码').fill(password)
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await expect(page.getByText(/身份|失败|错误|temporary/).first()).toBeVisible({ timeout: 30_000 })
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await expect(page).not.toHaveURL(/#\/login/, { timeout: 45_000 })
+})
+
+test('live SSO callback failure keeps login usable', async ({ page }) => {
+  test.setTimeout(120_000)
+  await page.goto('/public/#/login')
+  await page.evaluate(() => sessionStorage.setItem('sso', 'missing-provider'))
+  await page.goto('/public/#/login?code=invalid-code')
+  await expect(page.getByText(/单点登录|登录失败|认证失败|Authenticate failed/).first()).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByPlaceholder('请输入账号')).toBeVisible()
+})
+
+test('live expired session redirects to login', async ({ page }) => {
+  test.setTimeout(120_000)
+  await login(page)
+  await page.context().clearCookies()
+  await page.goto('/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')
+  await expect(page).toHaveURL(/#\/login/, { timeout: 60_000 })
+  await expect(page.getByPlaceholder('请输入账号')).toBeVisible()
 })
 
 test('live logout and password reset round trip', async ({ page }) => {
