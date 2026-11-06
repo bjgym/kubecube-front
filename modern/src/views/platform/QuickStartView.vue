@@ -804,7 +804,11 @@ async function loadMemberOptions() {
       userApi.list({ pageNum: 1, pageSize: 200 }),
       userApi.clusterRoles(selectedProject.value ? 'project' : 'tenant'),
     ])
-    memberUsers.value = users.items || []
+    memberUsers.value = (users.items || []).map((user) => {
+      if (user.metadata?.name) return user
+      const flat = user as unknown as Record<string, unknown>
+      return { ...user, metadata: { name: String(flat.name || '') } } as KubeResource
+    })
     memberRoles.value = roles.items || []
     memberModel.userName = memberUsers.value.some((user) => user.metadata.name === memberModel.userName)
       ? memberModel.userName

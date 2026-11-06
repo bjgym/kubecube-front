@@ -327,4 +327,12 @@ test('live resource API contracts create read delete', async ({ page }) => {
   expect(String(namespaceQuotaRead.spec?.hard?.['requests.cpu'])).toBe('2')
   await deleteEventually(page, `${quotaCollection}/live-quota`)
   await deleteEventually(page, `${namespacePath}/live-quota-ns`)
+
+  const key = await page.request.post('/api/v1/cube/key/create')
+  expect(key.ok(), `key create: ${key.status()}`).toBeTruthy()
+  const keyBody = (await key.json()) as { accessKey?: string }
+  expect(keyBody.accessKey).toBeTruthy()
+  const keys = (await (await page.request.get('/api/v1/cube/key')).json()) as { items?: Array<Record<string, any>> }
+  expect((keys.items || []).some((item) => item.metadata?.name === keyBody.accessKey)).toBeTruthy()
+  expect((await page.request.delete('/api/v1/cube/key', { params: { accessKey: keyBody.accessKey! } })).ok()).toBeTruthy()
 })

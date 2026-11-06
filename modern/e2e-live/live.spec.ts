@@ -163,7 +163,39 @@ test('live four-role identities from the backend', async ({ browser, page }) => 
   const users = ['live-tenant-admin', 'live-project-admin', 'live-normal-user']
   await login(page)
   try {
+    const roleBindings = await page.request.get(
+      '/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/rolebindings?limit=500',
+    )
+    if (roleBindings.ok()) {
+      const body = (await roleBindings.json()) as { items?: Array<Record<string, any>> }
+      for (const binding of body.items || []) {
+        const name = String(binding.metadata?.name || '')
+        const namespace = String(binding.metadata?.namespace || '')
+        if (name.startsWith('live-normal-user-in-') && namespace) {
+          await page.request.delete(
+            `/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/namespaces/${namespace}/rolebindings/${name}`,
+          )
+        }
+      }
+    }
+    const clusterRoleBindings = await page.request.get(
+      '/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=500',
+    )
+    if (clusterRoleBindings.ok()) {
+      const body = (await clusterRoleBindings.json()) as { items?: Array<Record<string, any>> }
+      for (const binding of body.items || []) {
+        const name = String(binding.metadata?.name || '')
+        if (name.includes('live-normal-user')) {
+          await page.request.delete(
+            `/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${name}`,
+          )
+        }
+      }
+    }
+    await page.waitForTimeout(2000)
     for (const user of users) await ensureLiveUser(page, user, secret)
+    await page.request.put('/api/v1/cube/user/live-normal-user', { data: { spec: { scopeBindings: [] } } })
+    await page.waitForTimeout(2000)
     await ensureLiveBinding(page, users[0]!, 'kubecube-tenant-digital-retail', 'tenant-admin', 'digital-retail')
     await ensureLiveBinding(page, users[1]!, 'kubecube-project-online-business', 'project-admin', 'digital-retail', 'online-business')
     const expected = [
@@ -208,6 +240,8 @@ test('live four-role menus and direct URL boundaries', async ({ browser, page })
   await login(page)
   try {
     for (const user of users) await ensureLiveUser(page, user, secret)
+    await page.request.put('/api/v1/cube/user/live-normal-user', { data: { spec: { scopeBindings: [] } } })
+    await page.waitForTimeout(2000)
     await ensureLiveBinding(page, users[0]!, 'kubecube-tenant-digital-retail', 'tenant-admin', 'digital-retail')
     await ensureLiveBinding(page, users[1]!, 'kubecube-project-online-business', 'project-admin', 'digital-retail', 'online-business')
     const baseURL = process.env.KUBECUBE_LIVE_BASE_URL || 'http://127.0.0.1:4331'
@@ -397,6 +431,89 @@ test('live concurrent 401 responses redirect once', async ({ page }) => {
   await expect(page).toHaveURL(/#\/login/, { timeout: 60_000 })
   await page.waitForTimeout(3000)
   expect(loginNavigations).toBe(1)
+})
+
+test('live quick start saves inline quota and member', async ({ page }) => {
+  test.setTimeout(300_000)
+  const control = '/api/v1/cube/proxy/clusters/pivot-cluster/apis/tenant.kubecube.io/v1'
+  const tenant = 'live-quick-tenant'
+  const project = 'live-quick-project'
+  await login(page)
+  await ensureLiveUser(page, 'live-quick-member', 'KubeCube@2026')
+  try {
+    await page.request.delete(`${control}/projects/${project}`)
+    await page.request.delete(`${control}/tenants/${tenant}`)
+    expect(
+      (
+        await page.request.post(`${control}/tenants`, {
+          data: {
+            apiVersion: 'tenant.kubecube.io/v1',
+            kind: 'Tenant',
+            metadata: { name: tenant },
+            spec: { displayName: 'Live Quick Tenant' },
+          },
+        })
+      ).ok(),
+    ).toBeTruthy()
+    await page.waitForTimeout(3000)
+    expect(
+      (
+        await page.request.post(`${control}/projects`, {
+          data: {
+            apiVersion: 'tenant.kubecube.io/v1',
+            kind: 'Project',
+            metadata: { name: project, labels: { 'kubecube.io/tenant': tenant } },
+            spec: { displayName: 'Live Quick Project', description: 'live quick start' },
+          },
+        })
+      ).ok(),
+    ).toBeTruthy()
+    await page.waitForTimeout(5000)
+    await page.goto('/public/#/platform/bootstrap')
+    await expect(page.getByRole('heading', { name: '快速开始', exact: true })).toBeVisible({ timeout: 90_000 })
+    await page.getByRole('button', { name: /配置配额/ }).click()
+    await page.locator('.el-form-item').filter({ hasText: '租户' }).locator('.el-select').first().click()
+    await page.getByRole('option', { name: /Live Quick Tenant/ }).click()
+    await page.locator('.el-form-item').filter({ hasText: '目标集群' }).locator('.el-select').click()
+    await page.getByRole('option', { name: /member-arm64-6002/ }).click()
+    await page.locator('.el-form-item').filter({ hasText: 'CPU Request' }).locator('input').first().fill('1')
+    await page.getByRole('button', { name: '保存租户配额', exact: true }).click()
+    await expect(page.getByText(/配额.*成功|已保存/).first()).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: /添加成员/ }).click()
+    await page.locator('.el-form-item').filter({ hasText: '所属租户' }).locator('.el-select').click()
+    await page.getByRole('option', { name: /Live Quick Tenant/ }).click()
+    await page.locator('.el-form-item').filter({ hasText: '关联项目' }).locator('.el-select').click()
+    await page.getByRole('option', { name: /Live Quick Project/ }).click()
+    await page.waitForTimeout(2000)
+    await page.locator('.el-form-item').filter({ hasText: '账号' }).locator('.el-select').click()
+    await page.getByRole('option', { name: /live-quick-member/ }).click()
+    await page.getByRole('button', { name: '立即添加成员', exact: true }).click()
+    await expect(page.getByText(/添加为项目成员|添加为租户成员|已将/).first()).toBeVisible({ timeout: 60_000 })
+  } finally {
+    const clusterRoleBindings = await page.request.get(
+      '/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/clusterrolebindings?limit=500',
+    )
+    if (clusterRoleBindings.ok()) {
+      const body = (await clusterRoleBindings.json()) as { items?: Array<Record<string, any>> }
+      for (const binding of body.items || []) {
+        const name = String(binding.metadata?.name || '')
+        if (name.includes('live-quick-member')) {
+          await page.request.delete(
+            `/api/v1/cube/proxy/clusters/pivot-cluster/apis/rbac.authorization.k8s.io/v1/clusterrolebindings/${name}`,
+          )
+        }
+      }
+    }
+    await page.request.delete('/api/v1/cube/authorization/bindings', {
+      params: { name: `live-quick-member-in-kubecube-project-${project}`, namespace: `kubecube-project-${project}` },
+    })
+    await page.request.delete('/api/v1/cube/authorization/bindings', {
+      params: { name: `live-quick-member-in-kubecube-tenant-${tenant}`, namespace: `kubecube-tenant-${tenant}` },
+    })
+    await page.request.put('/api/v1/cube/user/live-quick-member', { data: { spec: { scopeBindings: [] } } })
+    await page.request.delete(`${control}/projects/${project}`)
+    await page.request.delete(`${control}/tenants/${tenant}`)
+  }
 })
 
 test('live identity failure can be retried', async ({ page }) => {
