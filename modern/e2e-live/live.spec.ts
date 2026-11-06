@@ -109,6 +109,77 @@ test('live platform administration pages load real data', async ({ page }) => {
   await screenshot(page, '07-live-platform-admin')
 })
 
+async function ensureLiveUser(page: Page, name: string, secret: string) {
+  const created = await page.request.post('/api/v1/cube/user', {
+    data: { metadata: { name }, spec: { displayName: name, password: secret } },
+  })
+  if (created.ok()) return
+  const body = await created.text()
+  if (!body.includes('exists')) throw new Error(`create ${name} failed: ${created.status()} ${body}`)
+  const updated = await page.request.put(`/api/v1/cube/user/${name}`, { data: { spec: { password: secret } } })
+  if (!updated.ok()) throw new Error(`reset ${name} failed: ${updated.status()}`)
+}
+
+async function ensureLiveBinding(page: Page, user: string, namespace: string, role: string, tenant: string, project?: string) {
+  await page.request.delete('/api/v1/cube/authorization/bindings', { params: { name: `${user}-in-${namespace}`, namespace } })
+  const labels: Record<string, string> = { 'kubecube.io/rbac': 'true', 'kubecube.io/tenant': tenant }
+  if (project) labels['kubecube.io/project'] = project
+  const response = await page.request.post('/api/v1/cube/authorization/bindings', {
+    data: {
+      apiVersion: 'rbac.authorization.k8s.io/v1',
+      kind: 'RoleBinding',
+      metadata: { name: `${user}-in-${namespace}`, namespace, labels, annotations: { 'kubecube.io/sync': 'true' } },
+      roleRef: { apiGroup: 'rbac.authorization.k8s.io', kind: 'ClusterRole', name: role },
+      subjects: [{ kind: 'User', name: user }],
+    },
+  })
+  expect(response.ok()).toBeTruthy()
+}
+
+test('live four-role identities from the backend', async ({ browser, page }) => {
+  test.setTimeout(180_000)
+  const secret = 'KubeCube@2026'
+  const users = ['live-tenant-admin', 'live-project-admin', 'live-normal-user']
+  await login(page)
+  try {
+    for (const user of users) await ensureLiveUser(page, user, secret)
+    await ensureLiveBinding(page, users[0]!, 'kubecube-tenant-digital-retail', 'tenant-admin', 'digital-retail')
+    await ensureLiveBinding(page, users[1]!, 'kubecube-project-online-business', 'project-admin', 'digital-retail', 'online-business')
+    const expected = [
+      { platformAdmin: false, tenantAdmin: true, projectAdmin: false },
+      { platformAdmin: false, tenantAdmin: false, projectAdmin: true },
+      { platformAdmin: false, tenantAdmin: false, projectAdmin: false },
+    ]
+    const baseURL = process.env.KUBECUBE_LIVE_BASE_URL || 'http://127.0.0.1:4331'
+    for (const [index, user] of users.entries()) {
+      const context = await browser.newContext({ baseURL })
+      try {
+        const loginResponse = await context.request.post('/api/v1/cube/login', {
+          data: { name: user, password: secret, loginType: 'normal' },
+        })
+        expect(loginResponse.ok()).toBeTruthy()
+        const identities = await context.request.get('/api/v1/cube/authorization/identities')
+        expect(identities.ok()).toBeTruthy()
+        const body = (await identities.json()) as Record<string, boolean>
+        expect({ platformAdmin: body.platformAdmin, tenantAdmin: body.tenantAdmin, projectAdmin: body.projectAdmin }).toEqual(
+          expected[index],
+        )
+      } finally {
+        await context.close()
+      }
+    }
+  } finally {
+    for (const user of users) {
+      await page.request.delete('/api/v1/cube/authorization/bindings', {
+        params: { name: `${user}-in-kubecube-tenant-digital-retail`, namespace: 'kubecube-tenant-digital-retail' },
+      })
+      await page.request.delete('/api/v1/cube/authorization/bindings', {
+        params: { name: `${user}-in-kubecube-project-online-business`, namespace: 'kubecube-project-online-business' },
+      })
+    }
+  }
+})
+
 test('live ConfigMap create and delete round trip', async ({ page }) => {
   await login(page)
   const name = 'live-console-check'
