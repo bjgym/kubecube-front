@@ -8,10 +8,10 @@ export interface LogConfigInput {
   containerName?: string
   matchFields?: Record<string, string[]>
   fields?: Record<string, string>
-  multiline?: { active?: boolean; pattern?: string }
+  multiline?: { active?: boolean; pattern?: string; [key: string]: unknown }
   ignoreOlder?: string
   excludeFiles?: string[]
-  cleanLogs?: { retainDays?: number }
+  cleanLogs?: { retainDays?: number; retainNum?: number; [key: string]: unknown }
   [key: string]: unknown
 }
 
@@ -35,35 +35,61 @@ export function normalizeLogConfig(item: LogConfigDto | KubeResource, context: R
   const candidate = item as KubeResource
   if (candidate.metadata?.name) return candidate
   const dto = item as LogConfigDto
+  const inputs = Array.isArray(dto.inputs) ? dto.inputs : []
+  const firstInput = inputs[0]
+  const type = firstInput ? (firstInput.paths?.length === 1 && firstInput.paths[0] === 'stdout' ? 'dockerStdout' : 'k8sLogfile') : undefined
+  const path = firstInput?.paths?.[0]
   return {
-    apiVersion: 'logseer.kubecube.io/v2',
+    ...dto,
     kind: 'LogConfig',
     metadata: {
       name: dto.name,
       namespace: dto.namespace || context.namespace,
       creationTimestamp: dto.createTime,
-      annotations: {},
-      labels: {},
+      labels: Object.fromEntries(
+        Object.entries(dto.labelSelector || {}).map(([key, value]) => [key, Array.isArray(value) ? value.join(',') : value]),
+      ),
     },
     spec: {
       ...dto,
+      ...(type ? { type } : {}),
+      ...(path ? { path } : {}),
       cluster: dto.cluster || context.cluster,
       namespace: dto.namespace || context.namespace,
-      inputs: dto.inputs || [],
+      inputs,
       labelSelector: dto.labelSelector || {},
     },
   }
 }
 
+function inputsFromSummary(spec: Record<string, unknown>): LogConfigInput[] {
+  const type = typeof spec.type === 'string' ? spec.type : 'dockerStdout'
+  const path = typeof spec.path === 'string' ? spec.path : ''
+  return [
+    {
+      name: '',
+      paths: type === 'dockerStdout' ? ['stdout'] : path ? [path] : [],
+      containerName: '',
+      matchFields: {},
+      fields: {},
+      multiline: { active: false, pattern: '' },
+      ignoreOlder: '0h',
+      excludeFiles: [],
+      cleanLogs: { retainDays: 0 },
+    },
+  ]
+}
+
 export function serializeLogConfig(resource: KubeResource, context: ResourceContext): LogConfigDto {
-  const spec = (resource.spec || {}) as Record<string, any>
+  const spec = (resource.spec || {}) as Record<string, unknown>
+  const { type: _type, path: _path, createTime: _createTime, updateTime: _updateTime, ...fields } = spec
   return {
-    ...spec,
+    ...fields,
     name: resource.metadata.name,
     cluster: context.cluster,
-    namespace: context.namespace,
-    labelSelector: (spec.labelSelector || {}) as Record<string, string | string[]>,
-    inputs: (Array.isArray(spec.inputs) ? spec.inputs : []) as LogConfigInput[],
+    namespace: context.namespace || resource.metadata.namespace,
+    labelSelector: resource.metadata.labels || (spec.labelSelector as Record<string, string | string[]> | undefined) || {},
+    inputs: Array.isArray(spec.inputs) ? (spec.inputs as LogConfigInput[]) : inputsFromSummary(spec),
   }
 }
 
@@ -72,12 +98,7 @@ export async function listLogConfigs(context: ResourceContext, params: Partial<P
   const pageNum = Math.max(1, Number(params.pageNum) || 1)
   const selector = params.selector || ''
   const filtervalue = selector.match(/metadata\.name~(.+)/)?.[1] || ''
-  const sortby =
-    params.sortName === 'metadata.name'
-      ? 'name'
-      : params.sortName === 'metadata.creationTimestamp'
-        ? 'createTime'
-        : params.sortName || 'name'
+  const sortby = params.sortName
   const response = (await logseerApi.configs({
     cluster: context.cluster,
     namespace: context.namespace || '',
@@ -98,19 +119,20 @@ export async function getLogConfig(context: ResourceContext): Promise<KubeResour
 }
 
 export async function createLogConfig(context: ResourceContext, resource: KubeResource): Promise<KubeResource> {
-  const response = (await logseerApi.createConfig(context.cluster, context.namespace || '', serializeLogConfig(resource, context))) as
-    LogConfigDto | KubeResource
-  return normalizeLogConfig(response, context)
+  const dto = serializeLogConfig(resource, context)
+  const response = (await logseerApi.createConfig(context.cluster, context.namespace || '', dto)) as LogConfigDto | KubeResource | null
+  return normalizeLogConfig(response || dto, context)
 }
 
 export async function replaceLogConfig(context: ResourceContext, resource: KubeResource): Promise<KubeResource> {
+  const dto = serializeLogConfig(resource, context)
   const response = (await logseerApi.updateConfig(
     context.cluster,
     context.namespace || '',
     context.name || resource.metadata.name,
-    serializeLogConfig(resource, context),
-  )) as LogConfigDto | KubeResource
-  return normalizeLogConfig(response, context)
+    dto,
+  )) as LogConfigDto | KubeResource | null
+  return normalizeLogConfig(response || dto, context)
 }
 
 export async function deleteLogConfig(context: ResourceContext): Promise<void> {

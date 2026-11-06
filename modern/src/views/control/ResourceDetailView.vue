@@ -33,6 +33,14 @@
         ><el-tab-pane v-for="tab in config.tabs" :key="tab" :name="tab" :label="tabLabels[tab]"
       /></el-tabs>
       <div v-if="resource" class="detail-content">
+        <el-alert
+          v-if="relatedError && ['pod', 'jobs', 'event', 'condition', 'log'].includes(activeTab)"
+          :title="relatedError"
+          type="error"
+          :closable="false"
+          show-icon
+          class="related-alert"
+        />
         <template v-if="activeTab === 'info'">
           <section class="detail-section">
             <div class="section-title">
@@ -227,15 +235,16 @@
               <el-select v-model="jobStatusFilter" aria-label="任务状态筛选" class="compact-select"
                 ><el-option label="全部状态" value="all" /><el-option label="已完成" value="complete" /><el-option
                   label="执行中"
-                  value="running" /></el-select
+                  value="running" /><el-option label="失败" value="failed" /></el-select
               ><el-button :loading="relatedLoading" @click="loadRelated"
                 ><el-icon><Refresh /></el-icon>刷新</el-button
               >
             </div>
           </div>
+          <el-alert v-if="jobActionError" :title="jobActionError" type="error" :closable="false" show-icon class="related-alert" />
           <el-table :data="filteredJobs" v-loading="relatedLoading"
             ><el-table-column prop="metadata.name" label="任务名称" min-width="220" /><el-table-column label="状态" width="130"
-              ><template #default="{ row }"><StatusTag :status="row.status?.succeeded ? '已完成' : '执行中'" /></template></el-table-column
+              ><template #default="{ row }"><StatusTag :status="jobStatus(row)" /></template></el-table-column
             ><el-table-column label="完成 / 目标" width="130"
               ><template #default="{ row }">{{ row.status?.succeeded || 0 }} / {{ row.spec?.completions || 1 }}</template></el-table-column
             ><el-table-column label="创建时间" width="190"
@@ -243,7 +252,9 @@
             ><el-table-column label="操作" width="150" align="right"
               ><template #default="{ row }"
                 ><el-button link type="primary" @click="openJobPods(row)">Pods</el-button
-                ><el-button link type="danger" @click="deleteJob(row)">删除</el-button></template
+                ><el-button link type="danger" :loading="deletingJobName === row.metadata.name" @click="deleteJob(row)"
+                  >删除</el-button
+                ></template
               ></el-table-column
             ><template #empty><EmptyState title="暂无关联任务" description="CronJob 到达调度时间后会在这里生成任务" /></template
           ></el-table>
@@ -277,13 +288,7 @@
                   value="history" /></el-select
               ><el-select v-model="eventScope" aria-label="事件对象" class="compact-select" @change="onEventScopeChange"
                 ><el-option label="当前资源" value="resource" /><el-option label="关联 Pod" value="pod" /></el-select
-              ><el-select
-                v-if="eventScope === 'pod'"
-                v-model="eventPod"
-                aria-label="事件 Pod"
-                filterable
-                class="pod-select"
-                @change="loadEvents"
+              ><el-select v-if="eventScope === 'pod'" v-model="eventPod" aria-label="事件 Pod" filterable class="pod-select"
                 ><el-option v-for="pod in logPodOptions" :key="pod" :label="pod" :value="pod" /></el-select
               ><el-select v-model="eventTypeFilter" aria-label="事件类型" class="compact-select"
                 ><el-option label="全部类型" value="" /><el-option label="Normal" value="Normal" /><el-option
@@ -294,6 +299,7 @@
               ><el-checkbox v-model="relatedAutoRefresh">自动刷新</el-checkbox>
             </div>
           </div>
+          <el-alert v-if="eventsError" :title="eventsError" type="error" :closable="false" show-icon class="related-alert" />
           <el-timeline v-if="filteredEvents.length" class="event-timeline"
             ><el-timeline-item
               v-for="event in filteredEvents"
@@ -336,6 +342,13 @@
                   :key="pod"
                   :label="`Pod: ${pod}`"
                   :value="pod"
+              /></el-select>
+              <el-select v-model="conditionTypeFilter" aria-label="Condition 类型" class="compact-select"
+                ><el-option label="全部 Condition" value="" /><el-option
+                  v-for="type in conditionTypes"
+                  :key="type"
+                  :label="type"
+                  :value="type"
               /></el-select>
               <el-checkbox v-model="relatedAutoRefresh">自动刷新</el-checkbox>
             </div>
@@ -534,7 +547,7 @@ type EventResource = KubeResource & {
   count?: number
   source?: { component?: string }
   reportingComponent?: string
-  involvedObject?: { name?: string; kind?: string }
+  involvedObject?: { name?: string; kind?: string; uid?: string }
 }
 interface ExternalPortFormRow {
   protocol: string
@@ -606,13 +619,17 @@ function podVersion(name: string): 'current' | 'history' {
   return podVersions.value[name] || 'current'
 }
 const relatedJobs = ref<KubeResource[]>([])
+const deletingJobName = ref('')
+const jobActionError = ref('')
 const jobPodsOpen = ref(false)
 const selectedJobName = ref('')
 const jobPods = ref<KubeResource[]>([])
 const jobPodsLoading = ref(false)
 const relatedLoading = ref(false)
+const relatedError = ref('')
 const events = ref<EventResource[]>([])
 const eventsLoading = ref(false)
+const eventsError = ref('')
 const relatedAutoRefresh = ref(true)
 const yamlOpen = ref(false)
 const yamlContent = ref('')
@@ -646,12 +663,16 @@ const externalLoading = ref(false)
 const externalSubmitting = ref(false)
 const externalLoadError = ref('')
 const externalSubmitError = ref('')
-const jobStatusFilter = ref<'all' | 'complete' | 'running'>('all')
+const jobStatusFilter = ref<'all' | 'complete' | 'running' | 'failed'>('all')
 const eventScope = ref<'resource' | 'pod'>('resource')
 const eventPod = ref('')
 const eventTypeFilter = ref('')
 const conditionPod = ref('')
+const conditionTypeFilter = ref('')
 let externalRequestId = 0
+let relatedRequestId = 0
+let eventRequestId = 0
+let logRequestId = 0
 const context = computed(() => ({ cluster: scope.cluster, namespace: scope.namespace, name: instanceName.value }))
 const writeAllowed = computed(() => scope.canWrite(config.value.key) || scope.canWrite(config.value.plural))
 const isProtectedResource = computed(() => {
@@ -862,16 +883,39 @@ const specStatusYaml = computed(() =>
 const conditions = computed(
   () => ((resource.value?.status as Record<string, any> | undefined)?.conditions || []) as Array<Record<string, string>>,
 )
-const conditionRows = computed(() => {
+const conditionSourceRows = computed(() => {
   if (!conditionPod.value) return conditions.value
   const pod = relatedPods.value.find((item) => item.metadata.name === conditionPod.value)
   return ((pod?.status as Record<string, any> | undefined)?.conditions || []) as Array<Record<string, string>>
 })
+const conditionTypes = computed(() => [...new Set(conditionSourceRows.value.map((item) => item.type).filter(Boolean))])
+const conditionRows = computed(() =>
+  conditionSourceRows.value.filter((item) => !conditionTypeFilter.value || item.type === conditionTypeFilter.value),
+)
+function jobStatus(job: KubeResource): '已完成' | '失败' | '执行中' {
+  const status = (job.status || {}) as Record<string, any>
+  const statusConditions = Array.isArray(status.conditions) ? (status.conditions as Array<Record<string, unknown>>) : []
+  if (
+    statusConditions.some((item) => item.type === 'Failed' && item.status === 'True') ||
+    (Number(status.failed || 0) > 0 && !Number(status.active || 0) && !Number(status.succeeded || 0))
+  )
+    return '失败'
+  if (
+    statusConditions.some((item) => item.type === 'Complete' && item.status === 'True') ||
+    Number(status.succeeded || 0) >= Number((job.spec as Record<string, any> | undefined)?.completions || 1)
+  )
+    return '已完成'
+  return '执行中'
+}
 const filteredJobs = computed(() =>
   relatedJobs.value.filter((job) => {
     if (jobStatusFilter.value === 'all') return true
-    const succeeded = Boolean(job.status?.succeeded)
-    return jobStatusFilter.value === 'complete' ? succeeded : !succeeded
+    const status = jobStatus(job)
+    return jobStatusFilter.value === 'complete'
+      ? status === '已完成'
+      : jobStatusFilter.value === 'failed'
+        ? status === '失败'
+        : status === '执行中'
   }),
 )
 const filteredEvents = computed(() => events.value.filter((event) => !eventTypeFilter.value || event.type === eventTypeFilter.value))
@@ -902,7 +946,8 @@ function syncRelatedTimer() {
   clearInterval(relatedTimer)
   if (!relatedAutoRefresh.value || !['event', 'condition'].includes(activeTab.value)) return
   relatedTimer = setInterval(() => {
-    if (activeTab.value === 'event') void loadEvents()
+    if (relatedLoading.value || eventsLoading.value) return
+    if (activeTab.value === 'event') void loadRelated().then(loadEvents)
     else void loadRelated()
   }, 15000)
 }
@@ -932,8 +977,14 @@ function ownerReferences(item: KubeResource): Array<Record<string, unknown>> {
   const refs = (item.metadata as Record<string, unknown>).ownerReferences
   return Array.isArray(refs) ? (refs as Array<Record<string, unknown>>) : []
 }
-function ownedBy(item: KubeResource, uids: Set<string>, names: Set<string> = new Set()) {
-  return ownerReferences(item).some((ref) => uids.has(String(ref.uid || '')) || names.has(String(ref.name || '')))
+function ownedBy(item: KubeResource, uids: Set<string>) {
+  return ownerReferences(item).some((ref) => uids.has(String(ref.uid || '')))
+}
+function matchesWorkloadSelector(item: KubeResource) {
+  const selector = (resource.value?.spec as Record<string, any> | undefined)?.selector
+  const matchLabels = (selector?.matchLabels || {}) as Record<string, string>
+  const entries = Object.entries(matchLabels)
+  return entries.length > 0 && entries.every(([key, value]) => item.metadata.labels?.[key] === value)
 }
 async function loadServiceRelations() {
   serviceRelationLoading.value = true
@@ -955,95 +1006,137 @@ async function loadServiceRelations() {
   }
 }
 async function loadRelated() {
+  const current = ++relatedRequestId
   relatedLoading.value = true
+  relatedError.value = ''
   try {
     const needsPods = ['pod', 'log', 'event', 'condition'].includes(activeTab.value)
     if (config.value.key === 'persistentvolumeclaims' && needsPods) {
       const response = await resourceApi.pvcPods(scope.cluster, scope.namespace, instanceName.value)
+      if (current !== relatedRequestId) return
       relatedPods.value = response.pods || []
+    } else if (config.value.key === 'pods' && needsPods) {
+      relatedPods.value = resource.value ? [resource.value] : []
     } else if (needsPods) {
       const response = await resourceApi.list(podDefinition, context.value, { pageNum: 1, pageSize: 500 })
+      if (current !== relatedRequestId) return
       let pods = response.items || []
       const ownerUid = String(resource.value?.metadata.uid || '')
-      if (config.value.key === 'pods') pods = pods.filter((item) => item.metadata.name === instanceName.value)
-      else if (config.value.key === 'deployments' && ownerUid) {
-        const replicaSets = await resourceApi.list(replicaSetDefinition, context.value, { pageNum: 1, pageSize: 500 })
-        const sets = (replicaSets.items || []).filter(
-          (item) =>
-            ownedBy(item, new Set([ownerUid])) || ownerReferences(item).some((ref) => String(ref.name || '') === instanceName.value),
-        )
+      if (config.value.key === 'deployments' && ownerUid) {
+        const replicaSets = await resourceApi.list(replicaSetDefinition, context.value, {
+          pageNum: 1,
+          pageSize: 500,
+          selector: `metadata.ownerReferences.uid=${ownerUid}`,
+          sortName: 'metadata.creationTimestamp',
+          sortOrder: 'desc',
+        })
+        if (current !== relatedRequestId) return
+        const sets = (replicaSets.items || []).filter((item) => ownedBy(item, new Set([ownerUid])))
         const revision = String(resource.value?.metadata.annotations?.['deployment.kubernetes.io/revision'] || '')
         const currentSets = revision
           ? sets.filter((item) => String(item.metadata.annotations?.['deployment.kubernetes.io/revision'] || '') === revision)
-          : sets.filter((item) => Number((item.spec as Record<string, any> | undefined)?.replicas || 0) > 0)
-        const currentNames = new Set(
-          currentSets.length ? currentSets.map((item) => item.metadata.name) : sets.map((item) => item.metadata.name),
-        )
+          : sets.slice(0, 1)
+        const currentUids = new Set(currentSets.map((item) => String(item.metadata.uid || '')).filter(Boolean))
         const uids = new Set(sets.map((item) => String(item.metadata.uid || '')).filter(Boolean))
-        const names = new Set(sets.map((item) => item.metadata.name))
-        pods = pods.filter((item) => ownedBy(item, uids, names))
+        pods = pods.filter((item) => ownedBy(item, uids))
         podVersions.value = Object.fromEntries(
           pods.map((pod) => {
-            const ownerName = ownerReferences(pod).find((ref) => names.has(String(ref.name || '')))?.name
-            return [pod.metadata.name, currentNames.has(String(ownerName || '')) ? 'current' : 'history']
+            const owner = ownerReferences(pod).find((ref) => uids.has(String(ref.uid || '')))
+            return [pod.metadata.name, currentUids.has(String(owner?.uid || '')) ? 'current' : 'history']
           }),
         ) as Record<string, 'current' | 'history'>
-      } else if (ownerUid) pods = pods.filter((item) => ownedBy(item, new Set([ownerUid])))
-      if (!pods.length && config.value.key !== 'pods') {
-        pods = (response.items || []).filter(
-          (item) => item.metadata.name.startsWith(`${instanceName.value}-`) || item.metadata.labels?.app === instanceName.value,
-        )
+      } else if (ownerUid) {
+        pods = pods.filter((item) => ownedBy(item, new Set([ownerUid])))
+        podVersions.value = {}
+      } else {
+        pods = pods.filter(matchesWorkloadSelector)
+        podVersions.value = {}
       }
       relatedPods.value = pods
     }
     if (activeTab.value === 'jobs') {
-      const response = await resourceApi.list(jobDefinition, context.value, { pageNum: 1, pageSize: 500 })
       const ownerUid = String(resource.value?.metadata.uid || '')
-      let jobs = response.items || []
-      const owned = ownerUid ? jobs.filter((job) => ownedBy(job, new Set([ownerUid]))) : []
-      jobs = owned.length ? owned : jobs.filter((job) => job.metadata.name.startsWith(`${instanceName.value}-`))
-      relatedJobs.value = jobs
+      if (!ownerUid) {
+        relatedJobs.value = []
+      } else {
+        const response = await resourceApi.list(jobDefinition, context.value, {
+          pageNum: 1,
+          pageSize: 500,
+          selector: `metadata.ownerReferences.uid=${ownerUid}`,
+        })
+        if (current !== relatedRequestId) return
+        relatedJobs.value = (response.items || []).filter((job) => ownedBy(job, new Set([ownerUid])))
+      }
     }
     if (['event', 'condition'].includes(activeTab.value)) {
-      if (!eventPod.value) eventPod.value = logPodOptions.value[0] || ''
+      if (!logPodOptions.value.includes(eventPod.value)) eventPod.value = logPodOptions.value[0] || ''
       if (conditionPod.value && !logPodOptions.value.includes(conditionPod.value)) conditionPod.value = ''
     }
     if (activeTab.value === 'log') {
-      if (!logPod.value) logPod.value = logPodOptions.value[0] || ''
+      const nextPod = logPodOptions.value.includes(logPod.value) ? logPod.value : logPodOptions.value[0] || ''
+      if (nextPod !== logPod.value) {
+        logPod.value = nextPod
+        resetLogWindow()
+      }
       if (!logContainer.value) logContainer.value = logContainerOptions.value[0] || 'app'
       if (logPod.value) await loadLogs()
     }
+  } catch (reason) {
+    if (current === relatedRequestId)
+      relatedError.value = `关联资源加载失败：${reason instanceof Error ? reason.message : '请求失败，请稍后重试'}。已保留当前数据。`
   } finally {
-    relatedLoading.value = false
+    if (current === relatedRequestId) relatedLoading.value = false
   }
 }
 async function loadEvents() {
+  const current = ++eventRequestId
   eventsLoading.value = true
+  eventsError.value = ''
   try {
     const podEvent = eventScope.value === 'pod'
-    if (podEvent && !eventPod.value) {
-      await loadRelated()
-    }
+    if (podEvent && !eventPod.value) await loadRelated()
     const targetName = podEvent ? eventPod.value : instanceName.value
     if (!targetName) {
-      events.value = []
+      if (current === eventRequestId) events.value = []
       return
     }
     const targetKind = podEvent ? 'Pod' : String(resource.value?.kind || config.value.kind)
+    const targetUid = podEvent
+      ? String(relatedPods.value.find((item) => item.metadata.name === targetName)?.metadata.uid || '')
+      : String(resource.value?.metadata.uid || '')
+    const selectors = [`involvedObject.name=${targetName}`, `involvedObject.kind=${targetKind}`]
+    if (targetUid) selectors.push(`involvedObject.uid=${targetUid}`)
+    if (eventTypeFilter.value) selectors.push(`type=${eventTypeFilter.value}`)
     const response = await resourceApi.list(eventDefinition, context.value, {
       pageNum: 1,
       pageSize: 300,
-      fieldSelector: `involvedObject.name=${targetName},involvedObject.kind=${targetKind}`,
+      fieldSelector: selectors.join(','),
+      sortName: 'lastTimestamp',
+      sortOrder: 'desc',
+      sortFunc: 'time',
     } as never)
+    if (current !== eventRequestId) return
     events.value = (response.items || [])
-      .filter((event) => (event as EventResource).involvedObject?.name === targetName || !(event as EventResource).involvedObject)
+      .filter((event) => {
+        const item = event as EventResource
+        const involved = item.involvedObject
+        return (
+          involved?.name === targetName &&
+          involved.kind === targetKind &&
+          (!targetUid || involved.uid === targetUid) &&
+          (!eventTypeFilter.value || item.type === eventTypeFilter.value)
+        )
+      })
       .sort(
         (left, right) =>
           Date.parse(String(right.lastTimestamp || right.metadata.creationTimestamp || '')) -
           Date.parse(String(left.lastTimestamp || left.metadata.creationTimestamp || '')),
       ) as EventResource[]
+  } catch (reason) {
+    if (current === eventRequestId)
+      eventsError.value = `事件加载失败：${reason instanceof Error ? reason.message : '请求失败，请稍后重试'}。已保留当前事件。`
   } finally {
-    eventsLoading.value = false
+    if (current === eventRequestId) eventsLoading.value = false
   }
 }
 function onEventScopeChange() {
@@ -1054,23 +1147,42 @@ async function openJobPods(job: KubeResource) {
   selectedJobName.value = job.metadata.name
   jobPodsOpen.value = true
   jobPodsLoading.value = true
+  jobPods.value = []
   try {
-    const response = await resourceApi.list(podDefinition, context.value, { pageNum: 1, pageSize: 500 })
-    jobPods.value = (response.items || []).filter((pod) =>
-      ownerReferences(pod).some((ref) => String(ref.kind || '') === 'Job' && String(ref.name || '') === job.metadata.name),
-    )
+    const jobUid = String(job.metadata.uid || '')
+    if (!jobUid) return
+    const response = await resourceApi.list(podDefinition, context.value, {
+      pageNum: 1,
+      pageSize: 500,
+      selector: `metadata.ownerReferences.uid=${jobUid}`,
+    })
+    jobPods.value = (response.items || []).filter((pod) => ownedBy(pod, new Set([jobUid])))
+  } catch (reason) {
+    ElMessage.error(`任务 Pod 加载失败：${reason instanceof Error ? reason.message : '请求失败，请稍后重试'}`)
   } finally {
     jobPodsLoading.value = false
   }
 }
 async function deleteJob(job: KubeResource) {
-  await ElMessageBox.confirm(`删除后 Job ${job.metadata.name} 及其 Pod 将无法恢复，确定继续吗？`, '删除任务', {
-    type: 'warning',
-    confirmButtonText: '确认删除',
-  })
-  await resourceApi.delete(jobDefinition, { ...context.value, name: job.metadata.name })
-  ElMessage.success('任务已删除')
-  await loadRelated()
+  try {
+    await ElMessageBox.confirm(`删除后 Job ${job.metadata.name} 及其 Pod 将无法恢复，确定继续吗？`, '删除任务', {
+      type: 'warning',
+      confirmButtonText: '确认删除',
+    })
+  } catch {
+    return
+  }
+  deletingJobName.value = job.metadata.name
+  jobActionError.value = ''
+  try {
+    await resourceApi.delete(jobDefinition, { ...context.value, name: job.metadata.name })
+    ElMessage.success('任务已删除')
+    await loadRelated()
+  } catch (reason) {
+    jobActionError.value = `任务删除失败：${reason instanceof Error ? reason.message : '请求失败，请稍后重试'}。当前任务列表已保留。`
+  } finally {
+    deletingJobName.value = ''
+  }
 }
 function openExternalDialog() {
   externalDialogOpen.value = true
@@ -1216,7 +1328,10 @@ function openLogShell() {
   if (logPod.value) ui.openShell(logPod.value, logContainer.value || 'app')
 }
 function resetLogWindow() {
+  logRequestId++
+  logsLoading.value = false
   logSelection.value = undefined
+  logDetails.value = undefined
   logLines.value = []
   logContent.value = ''
   logError.value = ''
@@ -1237,29 +1352,76 @@ function onLogPreviousChange() {
   resetLogWindow()
   loadLogs()
 }
-async function loadLogs(mode: 'latest' | 'older' = 'latest') {
+function newerLogQuery(containerName: string, selection: PodLogSelection, previous: boolean) {
+  return {
+    containerName,
+    offsetFrom: selection.offsetTo,
+    offsetTo: selection.offsetTo + LOG_PAGE_SIZE,
+    referenceTimestamp: selection.referencePoint.timestamp,
+    referenceLineNum: selection.referencePoint.lineNum,
+    logFilePosition: selection.logFilePosition,
+    previous,
+  }
+}
+function mergeNewerLogs(current: PodLogLine[], incoming: PodLogLine[]): PodLogLine[] {
+  const seen = new Set(current.map((line) => `${line.timestamp}\u0000${line.content}`))
+  return [
+    ...current,
+    ...incoming.filter((line) => {
+      const key = `${line.timestamp}\u0000${line.content}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    }),
+  ]
+}
+async function loadLogs(mode: 'latest' | 'older' | 'newer' = 'latest') {
   if (!logPod.value) return
+  const current = ++logRequestId
+  const pod = logPod.value
+  const container = logContainer.value
+  const previous = logPrevious.value
+  const selection = logSelection.value
   const viewer = logViewer.value
   const distanceFromBottom = viewer ? viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight : 0
   logsLoading.value = true
   logError.value = ''
   try {
     const query =
-      mode === 'older' && logSelection.value
-        ? olderPodLogQuery(logContainer.value, logSelection.value, LOG_PAGE_SIZE, logPrevious.value)
-        : podLogQuery(logContainer.value, LOG_PAGE_SIZE, logPrevious.value)
-    const details = await resourceApi.podLogs(scope.cluster, scope.namespace, logPod.value, query)
-    const lines = mode === 'older' ? mergeOlderLogs(logLines.value, details.logs) : details.logs
-    logDetails.value = details
-    logSelection.value = details.selection
+      mode === 'older' && selection
+        ? olderPodLogQuery(container, selection, LOG_PAGE_SIZE, previous)
+        : mode === 'newer' && selection
+          ? newerLogQuery(container, selection, previous)
+          : podLogQuery(container, LOG_PAGE_SIZE, previous)
+    const details = await resourceApi.podLogs(scope.cluster, scope.namespace, pod, query)
+    if (current !== logRequestId) return
+    const lines =
+      mode === 'older'
+        ? mergeOlderLogs(logLines.value, details.logs)
+        : mode === 'newer'
+          ? mergeNewerLogs(logLines.value, details.logs)
+          : details.logs
+    let nextSelection = details.selection
+    if (selection && mode !== 'latest' && (mode !== 'newer' || details.logs.length)) {
+      nextSelection = {
+        ...details.selection,
+        offsetFrom: Math.min(selection.offsetFrom, details.selection.offsetFrom),
+        offsetTo: Math.max(selection.offsetTo, details.selection.offsetTo),
+      }
+    }
+    logDetails.value = { ...details, selection: nextSelection, logs: lines }
+    logSelection.value = nextSelection
     logLines.value = lines
     logContent.value = formatPodLogs({ ...details, logs: lines }, true)
   } catch (error) {
-    logError.value = `日志加载失败：${error instanceof Error ? error.message : '请求失败，请稍后重试'}`
+    if (current === logRequestId)
+      logError.value = `日志加载失败：${error instanceof Error ? error.message : '请求失败，请稍后重试'}。已保留当前日志与读取位置。`
   } finally {
-    logsLoading.value = false
-    await nextTick()
-    if (viewer) viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight - distanceFromBottom)
+    if (current === logRequestId) {
+      logsLoading.value = false
+      await nextTick()
+      if (viewer) viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight - distanceFromBottom)
+    }
   }
 }
 async function loadOlderLogs() {
@@ -1267,46 +1429,98 @@ async function loadOlderLogs() {
   await loadLogs('older')
 }
 async function refreshLatestLogs() {
-  await loadLogs('latest')
+  await loadLogs(logSelection.value ? 'newer' : 'latest')
+}
+function startLogTimer() {
+  clearInterval(logTimer)
+  if (logAutoRefresh.value && activeTab.value === 'log') {
+    logTimer = setInterval(() => {
+      if (!logsLoading.value) void loadLogs('newer')
+    }, 3000)
+  }
 }
 watch(
   [instanceName, () => config.value.key, () => scope.key],
   () => {
     externalRequestId++
+    relatedRequestId++
+    eventRequestId++
+    clearInterval(logTimer)
+    clearInterval(relatedTimer)
+    resetLogWindow()
+    relatedPods.value = []
+    relatedJobs.value = []
+    events.value = []
+    podVersions.value = {}
+    eventPod.value = ''
+    conditionPod.value = ''
+    conditionTypeFilter.value = ''
+    logPod.value = ''
+    logContainer.value = ''
+    relatedLoading.value = false
+    eventsLoading.value = false
+    relatedError.value = ''
+    eventsError.value = ''
+    jobActionError.value = ''
+    jobPodsOpen.value = false
     externalDialogOpen.value = false
     externalPorts.value = []
     externalLoading.value = false
     externalLoadError.value = ''
     externalSubmitError.value = ''
-    loadResource()
+    void loadResource().then(() => {
+      startLogTimer()
+      syncRelatedTimer()
+    })
   },
   { immediate: true },
 )
-watch(activeTab, (tab) => {
+watch(activeTab, (tab, previous) => {
   clearInterval(logTimer)
-  if (['pod', 'jobs', 'log', 'event', 'condition'].includes(tab)) void loadRelated()
-  if (tab === 'event') void loadEvents()
-  if (tab === 'log' && logAutoRefresh.value) logTimer = setInterval(loadLogs, 3000)
+  relatedRequestId++
+  relatedLoading.value = false
+  if (previous === 'event' && tab !== 'event') {
+    eventRequestId++
+    events.value = []
+    eventsError.value = ''
+    eventsLoading.value = false
+  }
+  if (previous === 'condition' && tab !== 'condition') conditionTypeFilter.value = ''
+  if (previous === 'log' && tab !== 'log') resetLogWindow()
+  if (tab === 'event') void loadRelated().then(loadEvents)
+  else if (['pod', 'jobs', 'log', 'condition'].includes(tab)) void loadRelated()
+  startLogTimer()
 })
 watch(eventPod, () => {
   if (activeTab.value === 'event' && eventScope.value === 'pod') void loadEvents()
 })
+watch(eventTypeFilter, () => {
+  if (activeTab.value === 'event') void loadEvents()
+})
+watch(conditionPod, () => {
+  conditionTypeFilter.value = ''
+})
 watch(versionFilter, () => {
   eventPod.value = ''
   conditionPod.value = ''
+  conditionTypeFilter.value = ''
   logPod.value = ''
-  if (activeTab.value === 'event') void loadEvents()
-  if (activeTab.value === 'log') void loadLogs()
+  if (activeTab.value === 'event') void loadRelated().then(loadEvents)
+  else if (activeTab.value === 'condition') void loadRelated()
+  else if (activeTab.value === 'log') {
+    resetLogWindow()
+    void loadRelated()
+  }
 })
-watch(logAutoRefresh, (value) => {
-  clearInterval(logTimer)
-  if (value && activeTab.value === 'log') logTimer = setInterval(loadLogs, 3000)
-})
+watch(logAutoRefresh, startLogTimer)
 watch([activeTab, relatedAutoRefresh], syncRelatedTimer)
 onBeforeUnmount(() => {
   clearInterval(logTimer)
   clearInterval(relatedTimer)
   externalRequestId++
+  relatedRequestId++
+  eventRequestId++
+  logRequestId++
 })
 </script>
 <style scoped>
@@ -1326,6 +1540,9 @@ onBeforeUnmount(() => {
 }
 .detail-content {
   padding: 26px;
+}
+.related-alert {
+  margin-bottom: 16px;
 }
 .detail-section + .detail-section {
   margin-top: 32px;

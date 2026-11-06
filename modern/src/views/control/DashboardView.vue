@@ -2,7 +2,7 @@
   <div class="page page-stack dashboard-page">
     <PageHeader :title="pageTitle" :description="pageDescription" :breadcrumbs="breadcrumbs">
       <template #actions>
-        <el-button :icon="Refresh" :loading="loading" :disabled="!targetCluster" @click="loadMonitoring">立即刷新</el-button>
+        <el-button :icon="Refresh" :loading="loading" :disabled="!targetCluster" @click="reloadDashboard">立即刷新</el-button>
       </template>
     </PageHeader>
 
@@ -36,9 +36,9 @@
     </section>
 
     <el-alert v-if="loadError" type="error" show-icon :closable="false" :title="loadError">
-      <template #default><el-button link type="primary" :disabled="loading" @click="loadMonitoring">重试失败指标</el-button></template>
+      <template #default><el-button link type="primary" :disabled="loading" @click="reloadDashboard">重试失败指标</el-button></template>
     </el-alert>
-    <el-alert v-if="dashboardNotice && !hasDashboard" type="info" show-icon :closable="false" :title="dashboardNotice" />
+    <el-alert v-if="dashboardNotice && !hasDashboard" type="warning" show-icon :closable="false" :title="dashboardNotice" />
 
     <EmptyState
       v-if="!targetCluster"
@@ -57,7 +57,12 @@
               :placeholder="`选择${variable.label || variable.name}`"
               @change="loadMonitoring"
             >
-              <el-option v-for="option in variable.options || []" :key="option" :label="option" :value="option" />
+              <el-option
+                v-for="option in variable.options || []"
+                :key="option"
+                :label="option === '.*' ? '全部' : option"
+                :value="option"
+              />
             </el-select>
           </label>
           <span class="variable-hint">Dashboard 变量会替换面板中的 PromQL 模板</span>
@@ -100,20 +105,38 @@
                   :label="tableColumnLabel(panel, column)"
                   min-width="120"
                 >
-                  <template #default="{ row }">{{ tableCell(panel, column, row) }}</template>
+                  <template #default="{ row }">
+                    <router-link v-if="tableLink(panel, column, row)" :to="{ path: tableLink(panel, column, row), query: route.query }">{{
+                      tableCell(panel, column, row)
+                    }}</router-link>
+                    <span v-else>{{ tableCell(panel, column, row) }}</span>
+                  </template>
                 </el-table-column>
                 <template #empty
                   ><div class="panel-empty">{{ panel.state.error || '暂无表格数据' }}</div></template
                 >
               </el-table>
               <div v-else class="stat-list" v-loading="panel.state.loading">
-                <div v-for="stat in panel.stats" :key="stat.name" class="stat-entry">
-                  <span>{{ stat.name }}</span
-                  ><strong
-                    >{{ formatPanelValue(stat.value, panel.unit).value
-                    }}<small>{{ formatPanelValue(stat.value, panel.unit).unit }}</small></strong
+                <template v-for="stat in panel.stats" :key="stat.name">
+                  <router-link
+                    v-if="panel.linkUrl && stat.value !== null"
+                    class="stat-entry stat-entry--link"
+                    :to="{ path: statLink(panel, stat.value), query: route.query }"
                   >
-                </div>
+                    <span>{{ stat.name }}</span>
+                    <strong
+                      >{{ formatPanelValue(stat.value, panel.unit).value
+                      }}<small>{{ formatPanelValue(stat.value, panel.unit).unit }}</small></strong
+                    >
+                  </router-link>
+                  <div v-else class="stat-entry">
+                    <span>{{ stat.name }}</span>
+                    <strong
+                      >{{ formatPanelValue(stat.value, panel.unit).value
+                      }}<small>{{ formatPanelValue(stat.value, panel.unit).unit }}</small></strong
+                    >
+                  </div>
+                </template>
                 <div v-if="!panel.stats.length && !panel.state.loading" class="panel-empty">{{ panel.state.error || '暂无指标数据' }}</div>
               </div>
               <footer class="dashboard-panel__footer">
@@ -206,7 +229,7 @@ import { formatBytes, formatDate, formatNumber } from '@/utils/format'
 type ContextKind = 'namespace' | 'workload' | 'cluster' | 'component'
 type ChartKey = 'cpu' | 'memory' | 'network' | 'capacity'
 type MetricKey = 'cpu' | 'memory' | 'network' | 'available'
-type UnitKind = 'cpu' | 'memory' | 'bytesPerSecond' | 'requestsPerSecond' | 'count' | 'fileDescriptors' | 'percent'
+type UnitKind = 'cpu' | 'memory' | 'bytesPerSecond' | 'requestsPerSecond' | 'count' | 'fileDescriptors' | 'percent' | 'seconds'
 interface QueryDefinition {
   name: string
   query: string
@@ -246,12 +269,22 @@ interface DashboardTarget {
   name: string
   query: string
   legend: string
+  ref: string
+  instant: boolean
 }
 interface DashboardVariable {
   name: string
   label: string
   request: string
+  includeAll: boolean
   options?: string[]
+}
+interface DashboardTableStyle {
+  alias: string
+  pattern: string
+  unit: UnitKind
+  link: boolean
+  linkUrl: string
 }
 interface DynamicPanel {
   id: string
@@ -263,9 +296,13 @@ interface DynamicPanel {
   state: ChartState
   tableRows: Array<Record<string, unknown>>
   tableColumns: string[]
-  tableStyles: Array<{ alias: string; pattern: string; unit: UnitKind }>
+  tableStyles: DashboardTableStyle[]
   tableUnits: Record<string, UnitKind>
   stats: Array<{ name: string; value: number | null }>
+  stack: boolean
+  axisMin?: number
+  axisMax?: number
+  linkUrl: string
 }
 interface DynamicRow {
   name: string
@@ -334,6 +371,7 @@ const contextKind = computed<ContextKind>(() => {
   return 'namespace'
 })
 const routeCluster = computed(() => (typeof route.query.cluster === 'string' ? route.query.cluster : ''))
+const namespaceName = computed(() => (typeof route.query.namespace === 'string' ? route.query.namespace : '') || scope.namespace)
 const targetCluster = computed(() => {
   if (contextKind.value === 'cluster' && typeof route.params.name === 'string') return route.params.name
   return routeCluster.value || scope.cluster || scope.controlCluster
@@ -347,17 +385,23 @@ const clusterName = computed(() => {
   return targetCluster.value
 })
 const contextKey = computed(() =>
-  [contextKind.value, targetCluster.value, scope.namespace, workload.value, instanceName.value, componentName.value, nodeName.value].join(
-    '|',
-  ),
+  [
+    contextKind.value,
+    targetCluster.value,
+    namespaceName.value,
+    workload.value,
+    instanceName.value,
+    componentName.value,
+    nodeName.value,
+  ].join('|'),
 )
 const workloadTitle = computed(() => getResourceConfig(workload.value)?.shortTitle || workload.value || '工作负载')
 const pageTitle = computed(() => {
-  if (dashboardTitle.value && hasDashboard.value) return dashboardTitle.value
+  if (contextKind.value === 'component' && dashboardTitle.value && hasDashboard.value) return `${dashboardTitle.value} · 组件监控`
   if (contextKind.value === 'component') return `${componentName.value || '平台组件'} · 组件监控`
   if (contextKind.value === 'cluster') return nodeName.value ? `${nodeName.value} · 节点监控` : `${clusterName.value} · 集群监控`
   if (contextKind.value === 'workload') return `${instanceName.value} · ${workloadTitle.value}监控`
-  return `${scope.namespace || '当前空间'} · 资源监控`
+  return `${namespaceName.value || '当前空间'} · 资源监控`
 })
 const pageDescription = computed(() => {
   const descriptions: Record<ContextKind, string> = {
@@ -407,7 +451,7 @@ const contextItems = computed(() => {
   if (!route.path.startsWith('/platform'))
     items.unshift({ label: '租户 / 项目', value: `${scope.tenant || '—'} / ${scope.project || '—'}` })
   if (contextKind.value === 'namespace' || contextKind.value === 'workload')
-    items.push({ label: '空间', value: scope.namespace || '未选择' })
+    items.push({ label: '空间', value: namespaceName.value || '未选择' })
   if (contextKind.value === 'workload') items.push({ label: '实例', value: instanceName.value })
   if (contextKind.value === 'component') items.push({ label: '组件面板', value: componentName.value || '未指定' })
   if (nodeName.value) items.push({ label: '节点', value: nodeName.value })
@@ -432,17 +476,33 @@ function createMetricStates(): Record<MetricKey, MetricState> {
 }
 function normalizeUnit(value: unknown): UnitKind {
   const unit = String(value || '')
-  if (['percentunit', 'percent'].includes(unit)) return 'percent'
-  if (['bytes', 'decbytes'].includes(unit)) return 'memory'
-  if (['Bps', 'binBps'].includes(unit)) return 'bytesPerSecond'
-  if (['pps', 'ops'].includes(unit)) return 'requestsPerSecond'
+  if (['percentunit', 'percent', '%'].includes(unit)) return 'percent'
+  if (['byte', 'bytes', 'decbytes'].includes(unit)) return 'memory'
+  if (['Bps', 'binBps', 'decBps'].includes(unit)) return 'bytesPerSecond'
+  if (['pps', 'ops', 'reqps'].includes(unit)) return 'requestsPerSecond'
   if (['cores', 'cpu'].includes(unit)) return 'cpu'
+  if (['s', 'seconds'].includes(unit)) return 'seconds'
   return 'count'
 }
-function applyVariables(template: string): string {
+function dashboardContextValues(): Record<string, string> {
+  return {
+    tenant: scope.tenant,
+    project: scope.project,
+    cluster: targetCluster.value,
+    namespace: namespaceName.value,
+    workload: instanceName.value,
+    pod: instanceName.value,
+    volume: instanceName.value,
+    type: workload.value.replace(/s$/, ''),
+    node: nodeName.value,
+    ...dashboardVariableValues.value,
+  }
+}
+function applyVariables(template: string, extra: Record<string, string> = {}): string {
+  const values = { ...dashboardContextValues(), ...extra }
   return String(template || '').replace(
-    /\[\[([A-Za-z0-9_]+)\]\]|\$([A-Za-z0-9_]+)/g,
-    (_match, bracket: string, dollar: string) => dashboardVariableValues.value[bracket || dollar] ?? '',
+    /\[\[([A-Za-z0-9_]+)\]\]|\$\{([A-Za-z0-9_]+)\}|\$([A-Za-z0-9_]+)/g,
+    (_match, bracket: string, braced: string, dollar: string) => values[bracket || braced || dollar] ?? '',
   )
 }
 function parseVariables(spec: DashboardSpec): DashboardVariable[] {
@@ -453,6 +513,7 @@ function parseVariables(spec: DashboardSpec): DashboardVariable[] {
         name: String(query.name || item.name || ''),
         label: String(query.label || query.name || item.name || ''),
         request: String(query.request || ''),
+        includeAll: query.includeAll === true || query.includeAll === 'true',
       }
     })
     .filter((item) => item.name)
@@ -472,6 +533,8 @@ function parseRows(spec: DashboardSpec): DynamicRow[] {
             name: String(prometheus.legend || `序列 ${targetIndex + 1}`),
             query: String(prometheus.query || ''),
             legend: String(prometheus.legend || ''),
+            ref: String(prometheus.ref || String.fromCharCode(65 + targetIndex)),
+            instant: prometheus.instant === true || prometheus.instant === 'true',
           }
         })
         .filter((target: DashboardTarget) => target.query)
@@ -481,7 +544,7 @@ function parseRows(spec: DashboardSpec): DynamicRow[] {
           type,
           title: String(config.title || (type === 'singleStat' ? '指标' : '监控图表')),
           span: Math.max(1, Math.min(12, Number(config.span) || (type === 'graph' ? 6 : type === 'table' ? 12 : 2))),
-          unit: normalizeUnit(config.unit || config.axes?.y?.unit || config.styles?.[0]?.unit),
+          unit: normalizeUnit(config.unit || config.axes?.left?.unit || config.axes?.y?.unit || config.styles?.[0]?.unit),
           targets,
           state: { series: [], loading: false, error: '' } as ChartState,
           tableRows: [] as Array<Record<string, unknown>>,
@@ -491,6 +554,8 @@ function parseRows(spec: DashboardSpec): DynamicRow[] {
               alias: String(style.alias || ''),
               pattern: String(style.pattern || ''),
               unit: normalizeUnit(style.unit),
+              link: Boolean(style.link),
+              linkUrl: String(style.linkUrl || ''),
             }))
             .filter((style: { alias: string }) => style.alias),
           tableUnits: Object.fromEntries(
@@ -499,6 +564,10 @@ function parseRows(spec: DashboardSpec): DynamicRow[] {
               .map((style: Record<string, any>) => [String(style.alias), normalizeUnit(style.unit)]),
           ),
           stats: [] as Array<{ name: string; value: number | null }>,
+          stack: Boolean(config.stack),
+          axisMin: Number.isFinite(Number(config.axes?.left?.min)) ? Number(config.axes.left.min) : undefined,
+          axisMax: Number.isFinite(Number(config.axes?.left?.max)) ? Number(config.axes.left.max) : undefined,
+          linkUrl: String(config.linkUrl || ''),
         },
       ]
     })
@@ -511,36 +580,43 @@ async function resolveVariableOptions(variable: DashboardVariable): Promise<stri
   const [, metric, label] = expression
   const end = Math.floor(Date.now() / 1000)
   const start = end - Math.floor(rangeMs.value / 1000)
-  try {
-    if (metric) {
-      const response = await monitorApi.series({ 'match[]': applyVariables(metric), start, end })
-      const root = response as Record<string, any>
-      const list = Array.isArray(root.data) ? root.data : Array.isArray(root) ? root : []
-      return [...new Set(list.map((item: Record<string, unknown>) => String(item[label!] || '')).filter(Boolean))]
-    }
-    const response = await monitorApi.labels(label!, { start, end })
+  if (metric) {
+    const response = await monitorApi.series({ 'match[]': applyVariables(metric), start, end })
     const root = response as Record<string, any>
-    const list = Array.isArray(root.data) ? root.data : Array.isArray(root.data?.data) ? root.data.data : []
-    const values = (list as unknown[])
-      .map((item: unknown) => (typeof item === 'string' ? item : String((item as Record<string, unknown>)?.value || '')))
-      .filter((value: unknown): value is string => Boolean(value))
-    return [...new Set<string>(values)]
-  } catch {
-    return []
+    const list = Array.isArray(root.data) ? root.data : Array.isArray(root) ? root : []
+    return [...new Set(list.map((item: Record<string, unknown>) => String(item[label!] || '')).filter(Boolean))]
   }
+  const response = await monitorApi.labels(label!, { start, end })
+  const root = response as Record<string, any>
+  const list = Array.isArray(root.data) ? root.data : Array.isArray(root.data?.data) ? root.data.data : []
+  const values = (list as unknown[])
+    .map((item: unknown) => (typeof item === 'string' ? item : String((item as Record<string, unknown>)?.value || '')))
+    .filter((value: unknown): value is string => Boolean(value))
+  return [...new Set<string>(values)]
+}
+async function requestDashboardDefinition(cluster: string): Promise<Record<string, any>> {
+  if (contextKind.value !== 'component') return (await monitorApi.dashboard(cluster, dashboardResourceName.value)) as Record<string, any>
+  const response = (await monitorApi.componentDashboards(cluster)) as Record<string, any> | Array<Record<string, any>>
+  const items = Array.isArray(response) ? response : Array.isArray(response.items) ? response.items : []
+  const selected = items.find((item) => item.metadata?.name === componentName.value)
+  if (!selected) throw new Error(`未找到组件 Dashboard ${componentName.value || '(未指定)'}`)
+  return selected
 }
 async function loadDashboardDefinition() {
   const expectedContext = contextKey.value
   dashboardLoaded.value = true
   dashboardNotice.value = ''
   dashboardTitle.value = ''
+  dashboardSpec.value = undefined
   dashboardVariables.value = []
   dashboardVariableValues.value = {}
   dashboardRows.value = []
+  panelVisibility.value = {}
+  clearDynamicCharts()
   const controlCluster = scope.controlCluster || targetCluster.value
   if (!controlCluster) return
   try {
-    const response = (await monitorApi.dashboard(controlCluster, dashboardResourceName.value)) as Record<string, any>
+    const response = await requestDashboardDefinition(controlCluster)
     if (expectedContext !== contextKey.value) return
     const spec = (response.spec || response) as DashboardSpec
     const rows = parseRows(spec)
@@ -552,17 +628,27 @@ async function loadDashboardDefinition() {
     dashboardTitle.value = String(spec.title || '')
     dashboardVariables.value = parseVariables(spec)
     for (const variable of dashboardVariables.value) {
-      const options = await resolveVariableOptions(variable)
+      const loaded = await resolveVariableOptions(variable)
       if (expectedContext !== contextKey.value) return
-      dashboardVariableValues.value[variable.name] = options[0] || ''
+      const options = variable.includeAll && !loaded.includes('.*') ? ['.*', ...loaded] : loaded
+      const contextValue = dashboardContextValues()[variable.name] || ''
+      const selected = options.includes(contextValue)
+        ? contextValue
+        : options.find((option) => option !== '.*') || (variable.includeAll ? '.*' : '') || contextValue
+      if (!selected) throw new Error(`Dashboard 变量 ${variable.label || variable.name} 暂无可选项`)
+      dashboardVariableValues.value[variable.name] = selected
       variable.options = options
     }
     dashboardRows.value = rows
     panelVisibility.value = Object.fromEntries(rows.flatMap((row) => row.panels.map((panel) => [panel.id, true])))
-  } catch {
+  } catch (error) {
     if (expectedContext === contextKey.value)
-      dashboardNotice.value = 'Dashboard 定义暂不可用，已使用内置指标视图；接口恢复后刷新即可加载完整面板。'
+      dashboardNotice.value = `Dashboard 定义或变量加载失败：${errorText(error)}。已降级为内置指标视图，点击刷新可重试。`
   }
+}
+function queryDashboardTarget(target: DashboardTarget, start: number, end: number, step: number) {
+  const query = applyVariables(target.query)
+  return target.instant ? monitorApi.query({ query, time: end }) : monitorApi.queryRange({ query, start, end, step })
 }
 async function loadDynamicMonitoring() {
   if (!hasDashboard.value) return
@@ -597,9 +683,7 @@ async function loadDynamicMonitoring() {
             await nextTick()
             renderDynamicChart(panel)
           } else if (panel.type === 'table') {
-            const responses = await Promise.all(
-              panel.targets.map((target) => monitorApi.query({ query: applyVariables(target.query), time: end })),
-            )
+            const responses = await Promise.all(panel.targets.map((target) => queryDashboardTarget(target, start, end, step)))
             if (current !== requestId) return
             const rows: Array<Record<string, unknown>> = []
             const grouped = new Map<string, Record<string, unknown>>()
@@ -607,35 +691,41 @@ async function loadDynamicMonitoring() {
             responses.forEach((response, index) => {
               const data = (response as Record<string, any>)?.data
               const result = Array.isArray(data?.result) ? data.result : []
-              const style = styles.find((item) => item.pattern === `Value #${String.fromCharCode(65 + index)}`)
+              const target = panel.targets[index]!
+              const valueStyle = styles.find((item) => item.pattern === `Value #${target.ref}`)
               for (const sample of result) {
                 const metric = (sample?.metric || {}) as Record<string, unknown>
-                const value = Array.isArray(sample?.value) ? sample.value[1] : undefined
+                const value = Array.isArray(sample?.value)
+                  ? sample.value[1]
+                  : Array.isArray(sample?.values)
+                    ? (sample.values.at(-1) as unknown[] | undefined)?.[1]
+                    : undefined
                 const key = JSON.stringify(metric)
-                const row = grouped.get(key) || { ...metric, __target: panel.targets[index]?.name || `序列 ${index + 1}` }
-                if (style) row[style.alias] = value
-                else row.__value = value
+                const row = grouped.get(key) || {}
+                Object.entries(metric).forEach(([name, labelValue]) => {
+                  row[name] = labelValue
+                  const labelStyle = styles.find((item) => item.pattern === name)
+                  if (labelStyle) row[labelStyle.alias] = labelValue
+                })
+                row[valueStyle?.alias || target.ref] = value
                 grouped.set(key, row)
               }
             })
             rows.push(...grouped.values())
             const columns = styles.length
-              ? ['__target', ...styles.map((style) => style.alias)]
+              ? styles.map((style) => style.alias)
               : [
-                  '__target',
                   ...new Set(
-                    rows.flatMap((item) => Object.keys(item).filter((key) => key !== '__target' && key !== '__value' && key !== '__name')),
+                    rows.flatMap((item) => Object.keys(item).filter((key) => !panel.targets.some((target) => target.ref === key))),
                   ),
-                  '__value',
+                  ...panel.targets.map((target) => target.ref),
                 ]
             panel.tableRows = rows
             panel.tableColumns = columns
             panel.state.loading = false
             successes++
           } else {
-            const responses = await Promise.all(
-              panel.targets.map((target) => monitorApi.query({ query: applyVariables(target.query), time: end })),
-            )
+            const responses = await Promise.all(panel.targets.map((target) => queryDashboardTarget(target, start, end, step)))
             if (current !== requestId) return
             panel.stats = responses.map((response, index) => ({
               name: panel.targets[index]?.name || `指标 ${index + 1}`,
@@ -656,6 +746,16 @@ async function loadDynamicMonitoring() {
   if (current !== requestId) return
   loading.value = false
   if (successes) lastUpdated.value = Date.now()
+  if (!successes && failures.length) {
+    dashboardRows.value = []
+    dashboardSpec.value = undefined
+    dashboardVariables.value = []
+    dashboardVariableValues.value = {}
+    clearDynamicCharts()
+    dashboardNotice.value = 'Dashboard 面板查询全部失败，已降级为内置指标视图；点击刷新可重新加载 Dashboard。'
+    await loadMonitoring()
+    return
+  }
   if (failures.length) loadError.value = `部分 Dashboard 面板更新失败，已有数据保持不变。${[...new Set(failures)].join('；')}`
 }
 function clearDynamicCharts() {
@@ -664,7 +764,12 @@ function clearDynamicCharts() {
   dynamicElements.clear()
 }
 function setDynamicChartRef(id: string, element: Element | ComponentPublicInstance | null) {
-  if (!(element instanceof HTMLDivElement)) return
+  if (!(element instanceof HTMLDivElement)) {
+    dynamicCharts.get(id)?.dispose()
+    dynamicCharts.delete(id)
+    dynamicElements.delete(id)
+    return
+  }
   dynamicElements.set(id, element)
   if (mounted) {
     ensureDynamicChart(id)
@@ -683,7 +788,7 @@ function renderDynamicChart(panel?: DynamicPanel) {
   const chart = dynamicCharts.get(panel.id)
   if (!chart) return
   const definition: ChartDefinition = { key: 'cpu', title: panel.title, description: '', footer: '', unit: panel.unit, queries: [] }
-  chart.setOption(chartOption(definition, panel.state), { notMerge: true })
+  chart.setOption(chartOption(definition, panel.state, panel), { notMerge: true })
 }
 function renderAllDynamicCharts() {
   dashboardRows.value
@@ -698,20 +803,28 @@ function renderAllDynamicCharts() {
 function formatPanelValue(value: number | null, unit: UnitKind) {
   return formatMetric(value, unit)
 }
-function tableColumnLabel(panel: DynamicPanel, column: string) {
-  if (column === '__target') return '查询'
-  if (column === '__value') return '值'
+function tableColumnLabel(_panel: DynamicPanel, column: string) {
   return column
 }
 function tableCell(panel: DynamicPanel, column: string, row: Record<string, unknown>) {
-  if (column === '__target') return row[column] ?? '—'
   const raw = row[column]
   if (raw === undefined || raw === null || raw === '') return '—'
-  if (column === '__value' || panel.tableUnits[column]) {
+  const isValue = panel.tableUnits[column] || panel.targets.some((target) => target.ref === column)
+  if (isValue) {
     const value = Number(raw)
-    return Number.isFinite(value) ? formatPanelValue(value, panel.tableUnits[column] || panel.unit).value : String(raw)
+    if (!Number.isFinite(value)) return String(raw)
+    const formatted = formatPanelValue(value, panel.tableUnits[column] || panel.unit)
+    return `${formatted.value}${formatted.unit ? ` ${formatted.unit}` : ''}`
   }
   return String(raw)
+}
+function tableLink(panel: DynamicPanel, column: string, row: Record<string, unknown>) {
+  const style = panel.tableStyles.find((item) => item.alias === column && item.link && item.linkUrl)
+  if (!style) return ''
+  return applyVariables(style.linkUrl, { __cell: String(row[column] ?? '') })
+}
+function statLink(panel: DynamicPanel, value: number) {
+  return applyVariables(panel.linkUrl, { __cell: String(value) })
 }
 function escapePrometheus(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -721,7 +834,8 @@ function escapeRegex(value: string) {
 }
 function baseLabels() {
   const labels = [`cluster="${escapePrometheus(targetCluster.value)}"`]
-  if (contextKind.value === 'namespace' || contextKind.value === 'workload') labels.push(`namespace="${escapePrometheus(scope.namespace)}"`)
+  if (contextKind.value === 'namespace' || contextKind.value === 'workload')
+    labels.push(`namespace="${escapePrometheus(namespaceName.value)}"`)
   if (contextKind.value === 'workload')
     labels.push(
       workload.value === 'pods' ? `pod="${escapePrometheus(instanceName.value)}"` : `pod=~"^${escapeRegex(instanceName.value)}(-.*)?$"`,
@@ -910,6 +1024,7 @@ function formatMetric(value: number | null, unit: UnitKind): { value: string | n
   if (unit === 'memory') return { value: formatBytes(value, 'B'), unit: '' }
   if (unit === 'bytesPerSecond') return { value: `${formatBytes(value, 'B')}/s`, unit: '' }
   if (unit === 'requestsPerSecond') return { value: formatNumber(value), unit: 'req/s' }
+  if (unit === 'seconds') return { value: formatNumber(value), unit: 's' }
   if (unit === 'percent') return { value: formatNumber(value * 100, 1), unit: '%' }
   return { value: formatNumber(value), unit: '个' }
 }
@@ -918,6 +1033,7 @@ function axisValue(value: number, unit: UnitKind) {
   if (unit === 'bytesPerSecond') return `${formatBytes(value, 'B')}/s`
   if (unit === 'cpu' && Math.abs(value) < 1) return `${formatNumber(value * 1000)}m`
   if (unit === 'percent') return `${formatNumber(value * 100, 1)}%`
+  if (unit === 'seconds') return `${formatNumber(value)}s`
   return formatNumber(value)
 }
 function errorText(error: unknown) {
@@ -936,12 +1052,15 @@ function resultSeries(response: unknown, definition: QueryDefinition): SeriesSta
       const item = entry as Record<string, unknown>
       const metric = item.metric && typeof item.metric === 'object' ? (item.metric as Record<string, unknown>) : {}
       const identity = ['pod', 'container', 'job', 'instance'].map((key) => metric[key]).find(Boolean)
-      const name =
-        result.length > 1 && identity
-          ? `${definition.name} · ${String(identity)}`
+      const hasLegendTemplate = definition.name.includes('{{')
+      const resolvedLegend = definition.name.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => String(metric[key] ?? ''))
+      const name = hasLegendTemplate
+        ? resolvedLegend || String(identity || definition.name)
+        : result.length > 1 && identity
+          ? `${resolvedLegend} · ${String(identity)}`
           : result.length > 1
-            ? `${definition.name} ${index + 1}`
-            : definition.name
+            ? `${resolvedLegend} ${index + 1}`
+            : resolvedLegend
       const values = Array.isArray(item.values)
         ? item.values.flatMap((point) => {
             if (!Array.isArray(point) || point.length < 2) return []
@@ -969,7 +1088,7 @@ function ensureChart(key: ChartKey) {
   charts.set(key, chart)
   resizeObserver?.observe(element)
 }
-function chartOption(definition: ChartDefinition, state: ChartState): EChartsOption {
+function chartOption(definition: ChartDefinition, state: ChartState, panel?: DynamicPanel): EChartsOption {
   const palette = ['#5b6cff', '#12b76a', '#2e90fa', '#f79009', '#7a5af8', '#f04438']
   const series: LineSeriesOption[] = state.series.map((item, index) => ({
     name: item.name,
@@ -978,6 +1097,7 @@ function chartOption(definition: ChartDefinition, state: ChartState): EChartsOpt
     smooth: true,
     showSymbol: false,
     connectNulls: false,
+    stack: panel?.stack ? 'total' : undefined,
     lineStyle: { width: 2, color: item.color || palette[index % palette.length] },
     itemStyle: { color: item.color || palette[index % palette.length] },
     areaStyle: { opacity: state.series.length === 1 ? 0.12 : 0.05 },
@@ -1009,7 +1129,8 @@ function chartOption(definition: ChartDefinition, state: ChartState): EChartsOpt
     },
     yAxis: {
       type: 'value',
-      min: (value) => Math.min(0, value.min),
+      min: panel?.axisMin ?? ((value) => Math.min(0, value.min)),
+      max: panel?.axisMax,
       axisLabel: { color: '#98a2b3', formatter: (value: number) => axisValue(value, definition.unit) },
       splitLine: { lineStyle: { color: '#eaecf0', type: 'dashed' } },
     },
@@ -1045,6 +1166,12 @@ function resetDashboard() {
   dashboardVariableValues.value = {}
   dashboardRows.value = []
   clearDynamicCharts()
+}
+async function reloadDashboard() {
+  requestId++
+  resetDashboard()
+  loadError.value = ''
+  await loadMonitoring()
 }
 async function loadMonitoring() {
   if (!targetCluster.value) {
@@ -1387,6 +1514,17 @@ onBeforeUnmount(() => {
   border-radius: 9px;
   flex-direction: column;
   gap: 7px;
+}
+.stat-entry--link {
+  color: inherit;
+  text-decoration: none;
+  transition:
+    border-color 160ms var(--ease),
+    box-shadow 160ms var(--ease);
+}
+.stat-entry--link:hover {
+  border-color: var(--brand-200);
+  box-shadow: var(--shadow-sm);
 }
 .stat-entry > span {
   overflow: hidden;

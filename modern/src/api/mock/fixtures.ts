@@ -68,7 +68,7 @@ const containers = [
 const workload = (kind: string, name: string, replicas: number, available = replicas): KubeResource => ({
   apiVersion: 'apps/v1',
   kind,
-  metadata: metadata(name),
+  metadata: { ...metadata(name), ...(kind === 'Deployment' ? { uid: `deployment-${name}` } : {}) },
   spec: { replicas, selector: { matchLabels: { app: name } }, template: { metadata: { labels: { app: name } }, spec: { containers } } },
   status: { replicas, readyReplicas: available, availableReplicas: available, updatedReplicas: replicas, observedGeneration: 12 },
 })
@@ -227,6 +227,7 @@ export const resources: Record<string, KubeResource[]> = {
       kind: 'ReplicaSet',
       metadata: {
         ...metadata('shop-web-6d8f', 'online-shop', 6),
+        uid: 'replicaset-shop-web-6d8f',
         annotations: { 'deployment.kubernetes.io/revision': '2' },
         ownerReferences: [{ apiVersion: 'apps/v1', kind: 'Deployment', name: 'shop-web', uid: 'deployment-shop-web' }],
       },
@@ -238,6 +239,7 @@ export const resources: Record<string, KubeResource[]> = {
       kind: 'ReplicaSet',
       metadata: {
         ...metadata('shop-web-54b7', 'online-shop', 30),
+        uid: 'replicaset-shop-web-54b7',
         annotations: { 'deployment.kubernetes.io/revision': '1' },
         ownerReferences: [{ apiVersion: 'apps/v1', kind: 'Deployment', name: 'shop-web', uid: 'deployment-shop-web' }],
       },
@@ -382,7 +384,7 @@ export const resources: Record<string, KubeResource[]> = {
     {
       apiVersion: 'batch/v1',
       kind: 'CronJob',
-      metadata: metadata('order-report'),
+      metadata: { ...metadata('order-report'), uid: 'cronjob-order-report' },
       spec: { schedule: '0 2 * * *', suspend: false, jobTemplate: { spec: { template: { spec: { containers } } } } },
       status: { lastScheduleTime: created(6), active: [] },
     },

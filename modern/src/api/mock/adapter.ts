@@ -20,6 +20,30 @@ const clone = <T>(value: T): T => (value === undefined || value === null ? value
 const text = (value: unknown): string => (value === undefined || value === null ? '' : String(value))
 const resourceName = (resource: KubeResource): string => resource.metadata?.name || text(record(resource).name)
 const quotaResources = (): KubeResource[] => (resources.resourcequotas ||= [])
+const logConfigItems: ObjectRecord[] = [
+  {
+    name: 'shop-stdout',
+    cluster: 'production-shanghai',
+    namespace: 'online-shop',
+    labelSelector: { app: 'shop-web' },
+    inputs: [
+      {
+        name: 'stdout',
+        paths: ['stdout'],
+        containerName: 'app',
+        matchFields: {},
+        fields: {},
+        multiline: { active: false, pattern: '' },
+        ignoreOlder: '24h',
+        excludeFiles: [],
+        cleanLogs: { retainDays: 1 },
+      },
+    ],
+    createTime: new Date(Date.now() - 72 * 3_600_000).toISOString(),
+    updateTime: new Date(Date.now() - 72 * 3_600_000).toISOString(),
+    status: { status: 'loaded' },
+  },
+]
 
 function response<T>(config: MockConfig, data: T, status = 200): AxiosResponse<T> {
   return { data, status, statusText: 'OK', headers: {}, config }
@@ -682,62 +706,65 @@ export const mockAdapter: AxiosAdapter = async (config) => {
   if (path === '/api/v1/cube/clusters/info' || path === '/api/v1/cube/clusters/namespaces')
     return response(config, { items: clusters, total: clusters.length })
   if (path === '/api/v2/logseer/extends/logconfigs') {
+    if (method !== 'GET') fail(config, 501, '本地 mock 仅支持 GET 日志任务列表')
     const cluster = text(params.cluster)
     const namespace = text(params.namespace)
+    const filterby = text(params.filterby) || 'name'
     const filter = text(params.filtervalue).toLowerCase()
-    const all = (resources.logconfigs || []).filter((item) => {
-      const spec = record(item.spec)
-      if (cluster && spec.cluster && spec.cluster !== cluster) return false
-      if (namespace && item.metadata.namespace && item.metadata.namespace !== namespace) return false
-      return !filter || resourceName(item).toLowerCase().includes(filter)
+    const all = logConfigItems.filter((item) => {
+      if (cluster && item.cluster !== cluster) return false
+      if (namespace && item.namespace !== namespace) return false
+      return !filter || text(item[filterby]).toLowerCase().includes(filter)
     })
+    const sortby = text(params.sortby)
+    if (sortby) {
+      const key = sortby === 'metadata.name' ? 'name' : sortby === 'metadata.creationTimestamp' ? 'createTime' : sortby
+      all.sort((left, right) => text(left[key]).localeCompare(text(right[key])))
+      if (!(params.asc === true || text(params.asc) === 'true')) all.reverse()
+    }
     const offset = Math.max(0, Number(params.offset) || 0)
     const limit = Math.max(1, Number(params.limit) || 10)
-    return response(config, { items: all.slice(offset, offset + limit), total: all.length })
+    return response(config, { items: clone(all.slice(offset, offset + limit)), total: all.length })
   }
-  if (path.startsWith('/api/v2/logseer/extends/clusters/') && path.includes('/logconfigs')) {
-    const cluster = pathPart(path, /\/clusters\/([^/]+)/)
-    const namespace = pathPart(path, /\/namespaces\/([^/]+)/)
-    const name = decode(path.split('/').at(-1))
-    const isCollection = name === 'logconfigs'
-    const collection = (resources.logconfigs ||= [])
+  const logConfigMatch = path.match(/^\/api\/v2\/logseer\/extends\/clusters\/([^/]+)\/namespaces\/([^/]+)\/logconfigs(?:\/([^/]+))?$/)
+  if (logConfigMatch) {
+    const cluster = decode(logConfigMatch[1])
+    const namespace = decode(logConfigMatch[2])
+    const name = decode(logConfigMatch[3])
+    const isCollection = !name
     if (method === 'POST' && isCollection) {
       const dto = record(data)
-      const resourceNameValue = text(dto.name)
-      if (!resourceNameValue) fail(config, 400, '日志任务名称不能为空')
-      if (collection.some((item) => resourceName(item) === resourceNameValue && item.metadata.namespace === namespace))
-        fail(config, 409, `日志任务 ${resourceNameValue} 已存在`)
-      const created = normalizeResource({
-        apiVersion: 'logseer.kubecube.io/v2',
-        kind: 'LogConfig',
-        metadata: { name: resourceNameValue, namespace },
-        spec: { ...dto, cluster, namespace },
-      })
-      collection.push(created)
-      return response(config, created)
+      const configName = text(dto.name)
+      if (!configName) fail(config, 400, '日志任务名称不能为空')
+      if (logConfigItems.some((item) => item.name === configName && item.cluster === cluster && item.namespace === namespace))
+        fail(config, 409, `日志任务 ${configName} 已存在`)
+      const now = new Date().toISOString()
+      const created = { ...clone(dto), name: configName, cluster, namespace, createTime: now, updateTime: now }
+      logConfigItems.push(created)
+      return response(config, clone(created))
     }
-    const index = collection.findIndex((item) => resourceName(item) === name && item.metadata.namespace === namespace)
+    const index = logConfigItems.findIndex((item) => item.name === name && item.cluster === cluster && item.namespace === namespace)
     if (method === 'GET' && !isCollection) {
       if (index < 0) fail(config, 404, `日志任务 ${name} 不存在`, 'NotFound')
-      return response(config, collection[index])
+      return response(config, clone(logConfigItems[index]))
     }
-    if ((method === 'PUT' || method === 'PATCH') && !isCollection) {
+    if (method === 'PUT' && !isCollection) {
       if (index < 0) fail(config, 404, `日志任务 ${name} 不存在`, 'NotFound')
-      const dto = record(data)
-      const current = collection[index]!
-      const updated = touch(
-        normalizeResource({
-          ...current,
-          metadata: { ...current.metadata, name },
-          spec: { ...record(current.spec), ...dto, cluster, namespace },
-        }),
-      )
-      collection[index] = updated
-      return response(config, updated)
+      const current = logConfigItems[index]!
+      const updated = {
+        ...clone(record(data)),
+        name,
+        cluster,
+        namespace,
+        createTime: current.createTime,
+        updateTime: new Date().toISOString(),
+      }
+      logConfigItems[index] = updated
+      return response(config, clone(updated))
     }
     if (method === 'DELETE' && !isCollection) {
       if (index < 0) fail(config, 404, `日志任务 ${name} 不存在`, 'NotFound')
-      collection.splice(index, 1)
+      logConfigItems.splice(index, 1)
       return response(config, null)
     }
     fail(config, 501, `本地 mock 不支持日志任务 ${method} 操作`)
@@ -837,7 +864,19 @@ export const mockAdapter: AxiosAdapter = async (config) => {
       status: 'success',
       data: { resultType: 'vector', result: [{ metric: {}, value: [Date.now() / 1000, '0.68'] }] },
     })
-  if (path.includes('/elasticsearch/_search'))
+  if (path === '/api/v1/logseer/extends/elasticsearch/availableFields') {
+    if (method !== 'GET') fail(config, 501, '本地 mock 仅支持 GET 可用日志字段')
+    return response(config, {
+      availableFields: ['message', 'hostname', 'namespace', 'cluster_name', 'pod_name', 'container_name', 'logconfig'],
+    })
+  }
+  if (path === '/api/v1/logseer/extends/elasticsearch/suggestions') {
+    if (method !== 'POST') fail(config, 501, '本地 mock 仅支持 POST 日志字段建议')
+    const field = text(data.field)
+    return response(config, { suggestions: field ? [`${field}-value`] : [] })
+  }
+  if (path === '/api/v1/logseer/extends/elasticsearch/_search') {
+    if (method !== 'POST') fail(config, 501, '本地 mock 仅支持 POST 日志查询')
     return response(config, {
       items: Array.from({ length: 20 }, (_, i) => ({
         timestamp: new Date(Date.now() - i * 5000).toISOString(),
@@ -849,6 +888,7 @@ export const mockAdapter: AxiosAdapter = async (config) => {
       })),
       total: 2458,
     })
+  }
   if (path.includes('/pvcworkloads/')) {
     const pvcName = pathPart(path, /\/pvcworkloads\/([^/]+)/)
     const pods = (resources.pods || []).filter((pod) => {

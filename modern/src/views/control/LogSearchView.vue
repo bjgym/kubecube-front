@@ -56,9 +56,10 @@
           <span>Pod</span>
           <el-input v-model="pod" clearable placeholder="完整 Pod 名称" />
         </label>
-        <label class="filter-field">
+        <label v-if="mode !== 'trace'" class="filter-field">
           <span>日志任务</span>
-          <el-select v-model="task" clearable placeholder="全部日志任务">
+          <el-select v-model="task" placeholder="全部任务" @change="submitSearch">
+            <el-option label="全部任务" value="all" />
             <el-option v-for="item in logTasks" :key="item" :label="item" :value="item" />
           </el-select>
         </label>
@@ -299,7 +300,7 @@ const keywordPlaceholder = computed(() =>
 const keyword = ref('')
 const level = ref('')
 const pod = ref('')
-const task = ref('')
+const task = ref('all')
 const logTasks = ref<string[]>([])
 const rangeMs = ref(mode.value === 'stream' ? 15 * 60_000 : 60 * 60_000)
 const autoRefresh = ref(mode.value === 'stream')
@@ -325,11 +326,12 @@ const lastUpdated = ref<number>()
 const page = ref(1)
 const pageSize = ref(20)
 let requestId = 0
+let logTaskRequestId = 0
 let refreshTimer: number | undefined
 
 const tracePrompt = computed(() => mode.value === 'trace' && !keyword.value.trim())
 const canSearch = computed(() => Boolean(scope.cluster && scope.namespace && !tracePrompt.value))
-const hasActiveFilters = computed(() => Boolean(keyword.value || level.value || pod.value || task.value))
+const hasActiveFilters = computed(() => Boolean(keyword.value || level.value || pod.value || (task.value && task.value !== 'all')))
 const maxHistogramValue = computed(() => Math.max(0, ...histogram.value.map((item) => item.count)))
 
 function errorText(error: unknown) {
@@ -452,7 +454,7 @@ function buildQuery(start: number, end: number) {
   ]
   if (level.value) filters.push({ key: 'level', operator: 'is', value: level.value })
   if (pod.value.trim()) filters.push({ key: 'pod', operator: 'is', value: pod.value.trim() })
-  if (task.value) filters.push({ key: 'logconfig', operator: 'is', value: task.value })
+  if (mode.value !== 'trace' && task.value && task.value !== 'all') filters.push({ key: 'logconfig', operator: 'is', value: task.value })
   let query = keyword.value.trim()
   if (mode.value === 'trace' && query && !/^".*"$/.test(query)) query = `"${query}"`
   query = query.replace(/"/g, '\\"')
@@ -567,7 +569,7 @@ function applySavedQuery(query: SavedQuery) {
   keyword.value = query.keyword
   level.value = query.level
   pod.value = query.pod
-  task.value = query.task
+  task.value = query.task || 'all'
   rangeMs.value = query.rangeMs
   customRange.value = null
   executeSearch(true)
@@ -580,24 +582,29 @@ function resetFilters() {
   keyword.value = ''
   level.value = ''
   pod.value = ''
-  task.value = ''
+  task.value = 'all'
   rangeMs.value = mode.value === 'stream' ? 15 * 60_000 : 60 * 60_000
   customRange.value = null
   executeSearch(true)
 }
 async function loadLogTasks() {
-  if (!scope.cluster || !scope.namespace) {
+  const current = ++logTaskRequestId
+  const cluster = scope.cluster
+  const namespace = scope.namespace
+  if (!cluster || !namespace) {
     logTasks.value = []
-    task.value = ''
+    task.value = 'all'
     return
   }
   try {
-    const response = await listLogConfigs({ cluster: scope.cluster, namespace: scope.namespace }, { pageNum: 1, pageSize: 200 })
+    const response = await listLogConfigs({ cluster, namespace }, { pageNum: 1, pageSize: 10_000 })
+    if (current !== logTaskRequestId) return
     logTasks.value = (response.items || []).map((item) => item.metadata.name).filter(Boolean)
-    if (task.value && !logTasks.value.includes(task.value)) task.value = ''
+    if (task.value !== 'all' && !logTasks.value.includes(task.value)) task.value = 'all'
   } catch {
+    if (current !== logTaskRequestId) return
     logTasks.value = []
-    task.value = ''
+    task.value = 'all'
   }
 }
 function changePage(value: number) {
@@ -653,6 +660,7 @@ function resetForContext() {
   total.value = 0
   loadError.value = ''
   lastUpdated.value = undefined
+  task.value = 'all'
   void loadLogTasks()
   if (!tracePrompt.value) executeSearch()
 }
@@ -681,6 +689,7 @@ onMounted(() => {
 })
 onBeforeUnmount(() => {
   requestId++
+  logTaskRequestId++
   if (refreshTimer !== undefined) window.clearInterval(refreshTimer)
 })
 </script>

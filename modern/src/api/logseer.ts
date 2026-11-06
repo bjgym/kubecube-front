@@ -16,9 +16,10 @@ export interface LogConfigListParams {
 }
 
 export const logseerApi = {
-  configs: (params: LogConfigListParams) => request<unknown>({ url: '/api/v2/logseer/extends/logconfigs', params, headers: authHeaders }),
+  configs: (params: LogConfigListParams) =>
+    request<unknown>({ url: '/api/v2/logseer/extends/logconfigs', method: 'GET', params, headers: authHeaders }),
   getConfig: (cluster: string, namespace: string, name: string) =>
-    request<unknown>({ url: logconfigPath(cluster, namespace, name), headers: authHeaders }),
+    request<unknown>({ url: logconfigPath(cluster, namespace, name), method: 'GET', headers: authHeaders }),
   createConfig: (cluster: string, namespace: string, data: unknown) =>
     request<unknown>({ url: logconfigPath(cluster, namespace), method: 'POST', data, headers: authHeaders }),
   updateConfig: (cluster: string, namespace: string, name: string, data: unknown) =>
@@ -34,8 +35,8 @@ export const logseerApi = {
       params: { desensitize: false },
       headers: authHeaders,
     }),
-  fields: (params: Record<string, unknown>) =>
-    request<unknown>({ url: '/api/v1/logseer/extends/elasticsearch/availableFields', params, headers: authHeaders }),
+  fields: (params?: Record<string, unknown>) =>
+    request<unknown>({ url: '/api/v1/logseer/extends/elasticsearch/availableFields', method: 'GET', params, headers: authHeaders }),
   suggestions: (data: unknown) =>
     request<unknown>({ url: '/api/v1/logseer/extends/elasticsearch/suggestions', method: 'POST', data, headers: authHeaders }),
 }
