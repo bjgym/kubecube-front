@@ -328,6 +328,41 @@ test('live resource API contracts create read delete', async ({ page }) => {
   await deleteEventually(page, `${quotaCollection}/live-quota`)
   await deleteEventually(page, `${namespacePath}/live-quota-ns`)
 
+  const monitoringNs = 'kubecube-monitoring'
+  await deleteEventually(page, `${namespacePath}/${monitoringNs}`)
+  expect(
+    (
+      await page.request.post(namespacePath, {
+        data: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: monitoringNs } },
+      })
+    ).ok(),
+  ).toBeTruthy()
+  const rulePath = `/api/v1/cube/proxy/clusters/${cluster}/apis/monitoring.coreos.com/v1/namespaces/${monitoringNs}/prometheusrules`
+  const rule = await page.request.post(rulePath, {
+    data: {
+      apiVersion: 'monitoring.coreos.com/v1',
+      kind: 'PrometheusRule',
+      metadata: { name: 'live-api-rule', namespace: monitoringNs },
+      spec: { groups: [{ name: 'live', rules: [{ alert: 'Live', expr: 'up == 0' }] }] },
+    },
+  })
+  expect(rule.ok(), `prometheusrule create: ${rule.status()} ${await rule.text()}`).toBeTruthy()
+  expect((await page.request.get(`${rulePath}/live-api-rule`)).ok()).toBeTruthy()
+  await deleteEventually(page, `${rulePath}/live-api-rule`)
+  const amPath = `/api/v1/cube/proxy/clusters/${cluster}/apis/monitoring.coreos.com/v1alpha1/namespaces/${monitoringNs}/alertmanagerconfigs`
+  const am = await page.request.post(amPath, {
+    data: {
+      apiVersion: 'monitoring.coreos.com/v1alpha1',
+      kind: 'AlertmanagerConfig',
+      metadata: { name: 'live-api-am', namespace: monitoringNs },
+      spec: { route: { receiver: 'default' }, receivers: [{ name: 'default' }] },
+    },
+  })
+  expect(am.ok(), `alertmanagerconfig create: ${am.status()} ${await am.text()}`).toBeTruthy()
+  expect((await page.request.get(`${amPath}/live-api-am`)).ok()).toBeTruthy()
+  await deleteEventually(page, `${amPath}/live-api-am`)
+  await deleteEventually(page, `${namespacePath}/${monitoringNs}`)
+
   const key = await page.request.post('/api/v1/cube/key/create')
   expect(key.ok(), `key create: ${key.status()}`).toBeTruthy()
   const keyBody = (await key.json()) as { accessKey?: string }
