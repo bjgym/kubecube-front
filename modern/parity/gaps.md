@@ -5,8 +5,6 @@ These surfaces are not yet complete under the acceptance rules. They are kept ou
 
 | Area                  | Gap                                                                             | Next action                                                                                        |
 | --------------------- | ------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| PVC                   | Mount By/associated replicas are incomplete                                     | Complete the PVC detail facts                                                                      |
-| Pod detail            | Row-level YAML/events/delete in the pod list is incomplete                      | Add per-pod row actions with confirmations and failure feedback                                    |
 | CronJob detail        | Job list cannot drill into a selected Job's Pods                                | Add Job → Pod selection                                                                            |
 | Pod list              | CPU/memory usage columns are absent                                             | Add monitoring-backed usage with a disabled-monitoring fallback                                    |
 | Log search            | Histogram has no brush time selection; no favorites/export                      | Add brush-to-range, saved queries and export                                                       |

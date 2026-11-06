@@ -98,6 +98,12 @@
                     <el-dropdown-item v-if="config.canRestart" command="restart" :disabled="!writeAllowed"
                       ><el-icon><RefreshRight /></el-icon>重建</el-dropdown-item
                     >
+                    <el-dropdown-item v-if="config.key === 'pods'" command="events"
+                      ><el-icon><Document /></el-icon>查看事件</el-dropdown-item
+                    >
+                    <el-dropdown-item v-if="config.key === 'pods'" command="evict" :disabled="!writeAllowed"
+                      ><el-icon><RefreshRight /></el-icon>驱逐 Pod</el-dropdown-item
+                    >
                     <el-dropdown-item command="delete" :disabled="!writeAllowed || isProtectedResource(row)" divided
                       ><span class="danger-text"
                         ><el-icon><Delete /></el-icon>删除</span
@@ -242,7 +248,20 @@ async function onCommand(command: string, row: KubeResource) {
   else if (command === 'delete') await remove(row)
   else if (command === 'scale') openScale(row)
   else if (command === 'restart') await restart(row)
-  else if (command === 'updateImage')
+  else if (command === 'events') router.push({ path: `/control/${config.value.key}/${row.metadata.name}/event`, query: scope.query })
+  else if (command === 'evict') {
+    await ElMessageBox.confirm(`驱逐会终止 Pod ${row.metadata.name}，并由其控制器重建；确定继续吗？`, '驱逐 Pod', {
+      type: 'warning',
+      confirmButtonText: '确认驱逐',
+    })
+    await resourceApi.evictPod(scope.cluster, scope.namespace, row.metadata.name, {
+      apiVersion: 'policy/v1',
+      kind: 'Eviction',
+      metadata: { name: row.metadata.name, namespace: scope.namespace },
+    })
+    ElMessage.success('已提交驱逐请求')
+    await load()
+  } else if (command === 'updateImage')
     router.push({ path: `/control/${config.value.key}/${row.metadata.name}/updateImage`, query: scope.query })
 }
 async function openYaml(row: KubeResource) {

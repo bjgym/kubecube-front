@@ -282,6 +282,18 @@ test('workload wizard builds env volumes mounts and init containers', async ({ p
   await expect(page.getByRole('tab', { name: /Init/ })).toHaveCount(1)
 })
 
+test('Pod list row actions open events and expose eviction', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/pods/list?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  const row = page.locator('tr').filter({ hasText: 'shop-web-00-x7d9f' }).first()
+  await row.getByRole('button', { name: '更多操作', exact: true }).click()
+  await expect(page.getByRole('menuitem', { name: '驱逐 Pod', exact: true })).toBeVisible()
+  await page.getByRole('menuitem', { name: '查看事件', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '资源事件', exact: true })).toBeVisible()
+})
+
 test('Pod detail can evict a pod through the management menu', async ({ page }) => {
   await login(page)
   await page.goto(
@@ -443,6 +455,14 @@ test('Global alert config supports structured receiver editing', async ({ page }
   await page.getByText('YAML', { exact: true }).click()
   await expect(page.getByLabel('Alertmanager YAML 配置')).toHaveValue(/smtp_smarthost: smtp\.example\.com:465/)
   await expect(page.getByLabel('Alertmanager YAML 配置')).toHaveValue(/wecom_api_url: https:\/\/qyapi\.weixin\.qq\.com\/cgi-bin\//)
+})
+
+test('tenant creation can assign an administrator account', async ({ page }) => {
+  await login(page)
+  await page.goto('/public/#/platform/tenant/tenant')
+  await page.getByRole('button', { name: '新增租户', exact: true }).first().click()
+  await expect(page.getByText('管理员账号（可选）', { exact: true })).toBeVisible()
+  await expect(page.getByRole('dialog').getByRole('combobox').last()).toBeVisible()
 })
 
 test('Quick start exposes inline member assignment', async ({ page }) => {

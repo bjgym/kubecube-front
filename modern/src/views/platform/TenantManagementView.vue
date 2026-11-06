@@ -243,6 +243,12 @@
         <el-form-item v-if="scopeKind === 'projects' && scopeDialogMode === 'create'" label="项目描述" prop="description">
           <el-input v-model.trim="scopeModel.description" type="textarea" :rows="3" maxlength="128" show-word-limit />
         </el-form-item>
+        <el-form-item v-if="scopeDialogMode === 'create'" label="管理员账号（可选）">
+          <el-select v-model="scopeModel.admin" filterable clearable placeholder="创建后自动授予管理员角色">
+            <el-option v-for="user in users" :key="resourceName(user)" :label="userName(user)" :value="userName(user)" />
+          </el-select>
+          <p class="form-help">将创建对应 RoleBinding；留空则稍后在成员管理中授权。</p>
+        </el-form-item>
       </el-form>
       <template #footer>
         <el-button :disabled="scopeSaving" @click="scopeDialogVisible = false">取消</el-button>
@@ -402,7 +408,7 @@ const scopeDialogMode = ref<'create' | 'edit'>('create')
 const scopeKind = ref<ScopeKind>('tenants')
 const scopeSaving = ref(false)
 const scopeFormRef = ref<FormInstance>()
-const scopeModel = reactive({ name: '', displayName: '', description: '', tenant: '' })
+const scopeModel = reactive({ name: '', displayName: '', description: '', tenant: '', admin: '' })
 
 const domainDialogVisible = ref(false)
 const domainSaving = ref(false)
@@ -692,7 +698,8 @@ function createCurrent() {
 function openCreateScope(kind: ScopeKind, tenant = '') {
   scopeKind.value = kind
   scopeDialogMode.value = 'create'
-  Object.assign(scopeModel, { name: '', displayName: '', description: '', tenant: tenant || selectedTenant.value })
+  Object.assign(scopeModel, { name: '', displayName: '', description: '', tenant: tenant || selectedTenant.value, admin: '' })
+  if (!users.value.length) void loadMembers()
   scopeDialogVisible.value = true
 }
 
@@ -710,7 +717,7 @@ function openEditScope(kind: ScopeKind, resource: KubeResource) {
 
 function resetScopeForm() {
   scopeFormRef.value?.clearValidate()
-  Object.assign(scopeModel, { name: '', displayName: '', description: '', tenant: '' })
+  Object.assign(scopeModel, { name: '', displayName: '', description: '', tenant: '', admin: '' })
 }
 
 const domainSuffixPattern = /^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9][a-z0-9-]{0,61}[a-z0-9]$/
@@ -770,10 +777,33 @@ async function submitDomainSuffixes() {
   }
 }
 
+async function bindScopeAdmin(scopeType: 'tenants' | 'projects', name: string, tenant: string, admin: string) {
+  const namespace = scopeType === 'tenants' ? `kubecube-tenant-${name}` : `kubecube-project-${name}`
+  const labels: Record<string, string> = { 'kubecube.io/rbac': 'true', 'kubecube.io/tenant': tenant }
+  if (scopeType === 'projects') labels['kubecube.io/project'] = name
+  await bindingApi.createBinding({
+    apiVersion: 'rbac.authorization.k8s.io/v1',
+    kind: 'RoleBinding',
+    metadata: {
+      name: `${admin}-in-${namespace}`,
+      namespace,
+      labels,
+      annotations: { 'kubecube.io/sync': 'true' },
+    },
+    roleRef: {
+      apiGroup: 'rbac.authorization.k8s.io',
+      kind: 'ClusterRole',
+      name: `${scopeType === 'tenants' ? 'tenant' : 'project'}-admin`,
+    },
+    subjects: [{ kind: 'User', name: admin }],
+  })
+}
+
 async function submitScope() {
   const valid = await scopeFormRef.value?.validate().catch(() => false)
   if (!valid || !scope.controlCluster) return
   scopeSaving.value = true
+  let created: { type: 'tenants' | 'projects'; name: string; tenant: string } | null = null
   try {
     if (scopeDialogMode.value === 'edit') {
       await scopeApi.patch(scope.controlCluster, scopeKind.value, scopeModel.name, { spec: { displayName: scopeModel.displayName } })
@@ -785,6 +815,7 @@ async function submitScope() {
         metadata: { name: scopeModel.name },
         spec: { displayName: scopeModel.displayName },
       })
+      created = { type: 'tenants', name: scopeModel.name, tenant: scopeModel.name }
       ElMessage.success('租户创建成功')
     } else {
       await scopeApi.create(scope.controlCluster, 'projects', {
@@ -793,8 +824,17 @@ async function submitScope() {
         metadata: { name: scopeModel.name, labels: { 'kubecube.io/tenant': scopeModel.tenant } },
         spec: { displayName: scopeModel.displayName, description: scopeModel.description },
       })
+      created = { type: 'projects', name: scopeModel.name, tenant: scopeModel.tenant }
       selectedTenant.value = scopeModel.tenant
       ElMessage.success('项目创建成功')
+    }
+    if (created && scopeModel.admin.trim()) {
+      try {
+        await bindScopeAdmin(created.type, created.name, created.tenant, scopeModel.admin.trim())
+        ElMessage.success(`已为 ${scopeModel.admin.trim()} 授予管理员角色`)
+      } catch {
+        ElMessage.warning('资源已创建，但管理员 RoleBinding 创建失败；请在成员管理中重新授权')
+      }
     }
     scopeDialogVisible.value = false
     await (scopeKind.value === 'tenants' ? loadTenants() : loadProjects())

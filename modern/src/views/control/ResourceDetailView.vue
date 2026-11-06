@@ -746,6 +746,11 @@ const kindFacts = computed<Array<{ label: string; value: string }>>(() => {
       add('实际容量', status.capacity?.storage)
       add('访问模式', spec.accessModes)
       add('卷模式', spec.volumeMode || 'Filesystem')
+      add('挂载 Pod 数', relatedPods.value.length)
+      add(
+        '挂载工作负载',
+        [...new Set(relatedPods.value.flatMap((pod) => ownerReferences(pod).map((ref) => `${ref.kind}/${ref.name}`)))].join(', ') || '—',
+      )
       break
     case 'configmaps':
       add('数据键', Object.keys(current.data || {}).length)
@@ -887,6 +892,13 @@ async function loadResource() {
     resource.value = await resourceApi.get(config.value, context.value)
     yamlContent.value = toYAML(resource.value)
     if (config.value.key === 'services') await loadServiceRelations()
+    if (config.value.key === 'persistentvolumeclaims' && !relatedPods.value.length) {
+      try {
+        relatedPods.value = (await resourceApi.pvcPods(scope.cluster, scope.namespace, instanceName.value)).pods || []
+      } catch {
+        relatedPods.value = []
+      }
+    }
     if (['pod', 'jobs', 'log', 'event', 'condition'].includes(activeTab.value)) await loadRelated()
     if (activeTab.value === 'event') await loadEvents()
   } catch (reason) {
