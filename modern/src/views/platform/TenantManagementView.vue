@@ -323,6 +323,11 @@
               :value="userName(user)"
             />
           </el-select>
+          <p v-if="users.length < userTotal" class="form-help">
+            <el-button link type="primary" :loading="usersLoadingMore" @click="loadMoreUsers"
+              >加载更多账号（{{ users.length }} / {{ userTotal }}）</el-button
+            >
+          </p>
         </el-form-item>
         <el-form-item label="角色" required>
           <el-select v-model="memberModel.role" filterable placeholder="请选择角色">
@@ -385,6 +390,8 @@ const projects = ref<KubeResource[]>([])
 const users = ref<KubeResource[]>([])
 const roles = ref<KubeResource[]>([])
 const userTotal = ref(0)
+const userPage = ref(1)
+const usersLoadingMore = ref(false)
 const tenantsLoading = ref(false)
 const projectsLoading = ref(false)
 const membersLoading = ref(false)
@@ -623,6 +630,7 @@ async function loadMembers() {
     if (generation !== memberGeneration) return
     users.value = response.items || []
     userTotal.value = Number(response.total ?? users.value.length)
+    userPage.value = 1
     membersError.value = false
   } catch {
     if (generation === memberGeneration) membersError.value = true
@@ -648,6 +656,20 @@ function extractRoles(response: unknown): KubeResource[] {
       } as KubeResource
     })
     .filter((item) => resourceName(item))
+}
+
+async function loadMoreUsers() {
+  if (usersLoadingMore.value || users.value.length >= userTotal.value) return
+  usersLoadingMore.value = true
+  try {
+    const response = await userApi.list({ pageNum: userPage.value + 1, pageSize: 100 })
+    const known = new Set(users.value.map((user) => userName(user)))
+    users.value = [...users.value, ...(response.items || []).filter((user) => !known.has(userName(user)))]
+    userTotal.value = Number(response.total ?? users.value.length)
+    userPage.value += 1
+  } finally {
+    usersLoadingMore.value = false
+  }
 }
 
 async function loadRoles() {

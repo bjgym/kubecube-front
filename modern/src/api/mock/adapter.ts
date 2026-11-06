@@ -321,8 +321,14 @@ export const mockAdapter: AxiosAdapter = async (config) => {
 
   if (path === '/api/v1/cube/login')
     return response(config, { metadata: { name: text(data.name) || 'admin' }, spec: { displayName: '平台管理员' } })
-  if (path === '/api/v1/cube/oauth/redirect') return response(config, { metadata: { name: 'admin' }, spec: { displayName: '平台管理员' } })
+  if (path === '/api/v1/cube/oauth/redirect') {
+    if (typeof window !== 'undefined' && window.localStorage.getItem('kubecube-mock-oauth') === 'fail')
+      fail(config, 500, '单点登录票据无效', 'Unauthorized')
+    return response(config, { metadata: { name: 'admin' }, spec: { displayName: '平台管理员' } })
+  }
   if (path === '/api/v1/cube/authorization/identities') {
+    if (typeof window !== 'undefined' && window.localStorage.getItem('kubecube-mock-identity') === 'fail')
+      fail(config, 500, '身份初始化暂时失败', 'InternalError')
     const override = typeof window === 'undefined' ? '' : window.localStorage.getItem('kubecube-mock-role')
     if (override === 'tenant') return response(config, { platformAdmin: false, tenantAdmin: true, projectAdmin: false })
     if (override === 'project') return response(config, { platformAdmin: false, tenantAdmin: false, projectAdmin: true })

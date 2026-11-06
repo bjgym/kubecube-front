@@ -38,6 +38,28 @@ test('login ignores an external redirect target', async ({ page }) => {
   await expect(page).not.toHaveURL(/evil\.example\.com/)
 })
 
+test('SSO callback failure keeps the login page usable', async ({ page }) => {
+  await page.addInitScript(() => {
+    sessionStorage.setItem('sso', 'mock')
+    localStorage.setItem('kubecube-mock-oauth', 'fail')
+  })
+  await page.goto('/public/#/login?code=invalid-ticket')
+  await expect(page.getByText(/单点登录|票据无效/).first()).toBeVisible({ timeout: 20_000 })
+  await expect(page.getByPlaceholder('请输入账号')).toBeVisible()
+})
+
+test('identity initialization failure can be retried', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('kubecube-mock-identity', 'fail'))
+  await page.goto('/public/#/login')
+  await page.getByPlaceholder('请输入账号').fill('admin')
+  await page.getByPlaceholder('请输入密码').fill('Admin@12345')
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await expect(page.getByText(/身份初始化|暂时失败/).first()).toBeVisible({ timeout: 20_000 })
+  await page.evaluate(() => localStorage.removeItem('kubecube-mock-identity'))
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await expect(page).not.toHaveURL(/#\/login/, { timeout: 20_000 })
+})
+
 test('deployment list, detail and YAML editor', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/control/deployments/list')
@@ -103,6 +125,15 @@ test('dashboard CR variables and panel types are rendered', async ({ page }) => 
   await expect(page.getByRole('heading', { name: '容器资源概览', exact: true })).toBeVisible()
   await expect(page.locator('.dashboard-variable').first()).toBeVisible()
   await expect(page.locator('.dashboard-panel .chart-element').first()).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: 'CPU', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '维度选择', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByText('容器资源概览', { exact: true }).click()
+  await dialog.getByRole('button', { name: '确定', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '容器资源概览', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: '维度选择', exact: true }).click()
+  await page.getByRole('dialog').getByText('容器资源概览', { exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: '确定', exact: true }).click()
   await screenshot(page, '08-dashboard-cr')
 })
 

@@ -32,6 +32,7 @@
         </el-select>
       </div>
       <span class="toolbar-hint">后台标签页暂停自动请求</span>
+      <el-button v-if="selectShowable" class="dimension-button" @click="dimensionDialogOpen = true">维度选择</el-button>
     </section>
 
     <el-alert v-if="loadError" type="error" show-icon :closable="false" :title="loadError">
@@ -61,7 +62,7 @@
           </label>
           <span class="variable-hint">Dashboard 变量会替换面板中的 PromQL 模板</span>
         </section>
-        <section v-for="row in dashboardRows" :key="row.name" class="dashboard-row">
+        <section v-for="row in visibleRows" :key="row.name" class="dashboard-row">
           <header class="dashboard-row__header">
             <h2>{{ row.name }}</h2>
             <span>{{ row.panels.length }} 个面板</span>
@@ -96,12 +97,10 @@
                 <el-table-column
                   v-for="column in panel.tableColumns"
                   :key="column"
-                  :label="column === '__target' ? '查询' : column === '__value' ? '值' : column"
+                  :label="tableColumnLabel(panel, column)"
                   min-width="120"
                 >
-                  <template #default="{ row }">{{
-                    column === '__value' ? formatPanelValue(Number(row[column]), panel.unit).value : (row[column] ?? '—')
-                  }}</template>
+                  <template #default="{ row }">{{ tableCell(panel, column, row) }}</template>
                 </el-table-column>
                 <template #empty
                   ><div class="panel-empty">{{ panel.state.error || '暂无表格数据' }}</div></template
@@ -175,6 +174,18 @@
         </div>
       </template>
     </template>
+    <el-dialog v-model="dimensionDialogOpen" title="维度选择" width="620px">
+      <div v-for="row in dashboardRows" :key="row.name" class="dimension-group">
+        <h4>{{ row.name }}</h4>
+        <div class="dimension-options">
+          <el-checkbox v-for="panel in row.panels" :key="panel.id" v-model="panelVisibility[panel.id]">{{ panel.title }}</el-checkbox>
+        </div>
+      </div>
+      <template #footer
+        ><el-button @click="dimensionDialogOpen = false">取消</el-button
+        ><el-button type="primary" @click="dimensionDialogOpen = false">确定</el-button></template
+      >
+    </el-dialog>
   </div>
 </template>
 
@@ -252,6 +263,8 @@ interface DynamicPanel {
   state: ChartState
   tableRows: Array<Record<string, unknown>>
   tableColumns: string[]
+  tableStyles: Array<{ alias: string; pattern: string; unit: UnitKind }>
+  tableUnits: Record<string, UnitKind>
   stats: Array<{ name: string; value: number | null }>
 }
 interface DynamicRow {
@@ -260,6 +273,7 @@ interface DynamicRow {
 }
 interface DashboardSpec {
   title?: string
+  selectshowable?: string | boolean
   variables?: Array<Record<string, any>>
   rows?: Array<Record<string, any>>
 }
@@ -299,6 +313,14 @@ const dashboardNotice = ref('')
 const dashboardVariables = ref<DashboardVariable[]>([])
 const dashboardVariableValues = ref<Record<string, string>>({})
 const dashboardRows = ref<DynamicRow[]>([])
+const panelVisibility = ref<Record<string, boolean>>({})
+const dimensionDialogOpen = ref(false)
+const selectShowable = computed(() => String(dashboardSpec.value?.selectshowable || '') === 'true')
+const visibleRows = computed(() =>
+  dashboardRows.value
+    .map((row) => ({ ...row, panels: row.panels.filter((panel) => panelVisibility.value[panel.id] !== false) }))
+    .filter((row) => row.panels.length),
+)
 const hasDashboard = computed(() => dashboardRows.value.some((row) => row.panels.length > 0))
 let resizeObserver: ResizeObserver | undefined
 let refreshTimer: number | undefined
@@ -464,6 +486,18 @@ function parseRows(spec: DashboardSpec): DynamicRow[] {
           state: { series: [], loading: false, error: '' } as ChartState,
           tableRows: [] as Array<Record<string, unknown>>,
           tableColumns: [] as string[],
+          tableStyles: (Array.isArray(config.styles) ? config.styles : [])
+            .map((style: Record<string, any>) => ({
+              alias: String(style.alias || ''),
+              pattern: String(style.pattern || ''),
+              unit: normalizeUnit(style.unit),
+            }))
+            .filter((style: { alias: string }) => style.alias),
+          tableUnits: Object.fromEntries(
+            (Array.isArray(config.styles) ? config.styles : [])
+              .filter((style: Record<string, any>) => style.alias)
+              .map((style: Record<string, any>) => [String(style.alias), normalizeUnit(style.unit)]),
+          ),
           stats: [] as Array<{ name: string; value: number | null }>,
         },
       ]
@@ -524,6 +558,7 @@ async function loadDashboardDefinition() {
       variable.options = options
     }
     dashboardRows.value = rows
+    panelVisibility.value = Object.fromEntries(rows.flatMap((row) => row.panels.map((panel) => [panel.id, true])))
   } catch {
     if (expectedContext === contextKey.value)
       dashboardNotice.value = 'Dashboard 定义暂不可用，已使用内置指标视图；接口恢复后刷新即可加载完整面板。'
@@ -567,22 +602,32 @@ async function loadDynamicMonitoring() {
             )
             if (current !== requestId) return
             const rows: Array<Record<string, unknown>> = []
+            const grouped = new Map<string, Record<string, unknown>>()
+            const styles = panel.tableStyles
             responses.forEach((response, index) => {
               const data = (response as Record<string, any>)?.data
               const result = Array.isArray(data?.result) ? data.result : []
+              const style = styles.find((item) => item.pattern === `Value #${String.fromCharCode(65 + index)}`)
               for (const sample of result) {
                 const metric = (sample?.metric || {}) as Record<string, unknown>
                 const value = Array.isArray(sample?.value) ? sample.value[1] : undefined
-                rows.push({ ...metric, __target: panel.targets[index]?.name || `序列 ${index + 1}`, __value: value })
+                const key = JSON.stringify(metric)
+                const row = grouped.get(key) || { ...metric, __target: panel.targets[index]?.name || `序列 ${index + 1}` }
+                if (style) row[style.alias] = value
+                else row.__value = value
+                grouped.set(key, row)
               }
             })
-            const columns = [
-              '__target',
-              ...new Set(
-                rows.flatMap((item) => Object.keys(item).filter((key) => key !== '__target' && key !== '__value' && key !== '__name')),
-              ),
-              '__value',
-            ]
+            rows.push(...grouped.values())
+            const columns = styles.length
+              ? ['__target', ...styles.map((style) => style.alias)]
+              : [
+                  '__target',
+                  ...new Set(
+                    rows.flatMap((item) => Object.keys(item).filter((key) => key !== '__target' && key !== '__value' && key !== '__name')),
+                  ),
+                  '__value',
+                ]
             panel.tableRows = rows
             panel.tableColumns = columns
             panel.state.loading = false
@@ -652,6 +697,21 @@ function renderAllDynamicCharts() {
 }
 function formatPanelValue(value: number | null, unit: UnitKind) {
   return formatMetric(value, unit)
+}
+function tableColumnLabel(panel: DynamicPanel, column: string) {
+  if (column === '__target') return '查询'
+  if (column === '__value') return '值'
+  return column
+}
+function tableCell(panel: DynamicPanel, column: string, row: Record<string, unknown>) {
+  if (column === '__target') return row[column] ?? '—'
+  const raw = row[column]
+  if (raw === undefined || raw === null || raw === '') return '—'
+  if (column === '__value' || panel.tableUnits[column]) {
+    const value = Number(raw)
+    return Number.isFinite(value) ? formatPanelValue(value, panel.tableUnits[column] || panel.unit).value : String(raw)
+  }
+  return String(raw)
 }
 function escapePrometheus(value: string) {
   return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
@@ -1206,6 +1266,21 @@ onBeforeUnmount(() => {
   margin-left: auto;
   color: var(--text-tertiary);
   font-size: 11px;
+}
+.dimension-button {
+  margin-left: 12px;
+}
+.dimension-group {
+  margin-bottom: 18px;
+}
+.dimension-group h4 {
+  margin-bottom: 8px;
+  font-size: 14px;
+}
+.dimension-options {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
 }
 .metrics-grid {
   display: grid;

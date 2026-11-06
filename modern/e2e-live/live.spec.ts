@@ -18,6 +18,7 @@ async function login(page: Page) {
     await page.getByRole('button', { name: /登\s*录/ }).click()
     try {
       await expect(page).not.toHaveURL(/#\/login/, { timeout: 45_000 })
+      await page.waitForTimeout(800)
       return
     } catch (error) {
       if (attempt === 1) throw error
@@ -102,6 +103,26 @@ test('live platform administration pages load real data', async ({ page }) => {
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 90_000 })
   }
   await screenshot(page, '07-live-platform-admin')
+})
+
+test('live ConfigMap create and delete round trip', async ({ page }) => {
+  await login(page)
+  const name = 'live-console-check'
+  const apiPath = `/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/namespaces/kubecube-system/configmaps/${name}`
+  await page.request.delete(apiPath)
+  await page.goto('/public/#/control/configmaps/create?cluster=pivot-cluster&namespace=kubecube-system')
+  await expect(page.getByRole('heading', { name: '创建 ConfigMap', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.getByPlaceholder('例如：order-service').fill(name)
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await page.getByPlaceholder('键 / 文件名').fill('console-check')
+  await page.getByPlaceholder('值或文件内容').fill('created-by-live-test')
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await page.getByRole('button', { name: '确认创建', exact: true }).first().click()
+  await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 120_000 })
+  await page.getByRole('button', { name: '管理资源', exact: true }).click()
+  await page.getByRole('menuitem', { name: '删除资源', exact: true }).click()
+  await page.getByRole('button', { name: '确认删除', exact: true }).click()
+  await expect(page).toHaveURL(/control\/configmaps\/list/, { timeout: 90_000 })
 })
 
 test('live Service keeps its workload selector while editing a port', async ({ page }) => {
