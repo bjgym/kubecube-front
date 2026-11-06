@@ -137,6 +137,10 @@ test('log search filters by log task against the Logseer endpoint', async ({ pag
   await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled()
   await page.locator('.histogram-column').first().click()
   await expect(page.getByText(/自定义时段/)).toBeVisible()
+  await page.getByRole('button', { name: '收藏', exact: true }).click()
+  await page.getByPlaceholder('例如：订单服务错误日志').fill('错误日志')
+  await page.getByRole('button', { name: '保存', exact: true }).click()
+  await expect(page.locator('.saved-queries').getByText('错误日志', { exact: true })).toBeVisible()
 })
 
 test('LogConfig wizard edits matchFields and multiple inputs', async ({ page }) => {

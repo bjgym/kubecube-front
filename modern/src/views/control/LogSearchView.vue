@@ -3,6 +3,7 @@
     <PageHeader :title="modeTitle" :description="modeDescription" :breadcrumbs="['资源控制台', '日志中心', modeTitle]">
       <template #actions>
         <el-button :icon="Refresh" :loading="loading" :disabled="!canSearch" @click="executeSearch()">刷新日志</el-button>
+        <el-button :icon="Star" :disabled="!hasActiveFilters" @click="saveCurrentQuery">收藏</el-button>
         <el-button :icon="Download" :disabled="!logs.length" @click="exportLogs">导出</el-button>
         <el-button type="primary" :icon="Search" :loading="loading" :disabled="!canSearch" @click="submitSearch">查询</el-button>
       </template>
@@ -28,6 +29,18 @@
     </el-tabs>
 
     <section class="search-panel surface">
+      <div v-if="savedQueries.length" class="saved-queries">
+        <span>已保存查询</span>
+        <el-tag
+          v-for="query in savedQueries"
+          :key="query.name"
+          closable
+          effect="plain"
+          @click="applySavedQuery(query)"
+          @close="removeSavedQuery(query.name)"
+          >{{ query.name }}</el-tag
+        >
+      </div>
       <form class="filter-grid" @submit.prevent="submitSearch">
         <label class="filter-field filter-field--keyword">
           <span>{{ mode === 'trace' ? 'Trace ID' : '关键词 / 查询语句' }}</span>
@@ -217,7 +230,8 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Download, Refresh, Search } from '@element-plus/icons-vue'
+import { ElMessageBox } from 'element-plus'
+import { Download, Refresh, Search, Star } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { logseerApi } from '@/api/logseer'
@@ -294,6 +308,16 @@ const logs = ref<LogEntry[]>([])
 const histogram = ref<HistogramBucket[]>([])
 const histogramSource = ref<'server' | 'local'>('local')
 const customRange = ref<{ start: number; end: number } | null>(null)
+interface SavedQuery {
+  name: string
+  keyword: string
+  level: string
+  pod: string
+  task: string
+  rangeMs: number
+}
+const SAVED_QUERY_KEY = 'kubecube-log-queries'
+const savedQueries = ref<SavedQuery[]>([])
 const total = ref(0)
 const loading = ref(false)
 const loadError = ref('')
@@ -508,6 +532,50 @@ function exportLogs() {
   anchor.click()
   URL.revokeObjectURL(url)
 }
+function loadSavedQueries() {
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(SAVED_QUERY_KEY) || '[]') as SavedQuery[]
+    savedQueries.value = Array.isArray(parsed)
+      ? parsed
+          .filter((query) => query && typeof query.name === 'string')
+          .map((query) => ({ ...query, rangeMs: Number(query.rangeMs) || rangeMs.value }))
+      : []
+  } catch {
+    savedQueries.value = []
+  }
+}
+function persistSavedQueries() {
+  window.localStorage.setItem(SAVED_QUERY_KEY, JSON.stringify(savedQueries.value))
+}
+async function saveCurrentQuery() {
+  try {
+    const { value } = await ElMessageBox.prompt('为当前筛选条件命名，后续可一键复用。', '收藏查询', {
+      inputPlaceholder: '例如：订单服务错误日志',
+      confirmButtonText: '保存',
+      cancelButtonText: '取消',
+      inputValidator: (input) => Boolean(input?.trim()) || '请输入名称',
+    })
+    const name = value.trim()
+    const query: SavedQuery = { name, keyword: keyword.value, level: level.value, pod: pod.value, task: task.value, rangeMs: rangeMs.value }
+    savedQueries.value = [...savedQueries.value.filter((item) => item.name !== name), query]
+    persistSavedQueries()
+  } catch {
+    // 用户取消收藏。
+  }
+}
+function applySavedQuery(query: SavedQuery) {
+  keyword.value = query.keyword
+  level.value = query.level
+  pod.value = query.pod
+  task.value = query.task
+  rangeMs.value = query.rangeMs
+  customRange.value = null
+  executeSearch(true)
+}
+function removeSavedQuery(name: string) {
+  savedQueries.value = savedQueries.value.filter((query) => query.name !== name)
+  persistSavedQueries()
+}
 function resetFilters() {
   keyword.value = ''
   level.value = ''
@@ -606,6 +674,7 @@ watch(mode, (value) => {
 })
 watch([() => scope.cluster, () => scope.namespace], resetForContext)
 onMounted(() => {
+  loadSavedQueries()
   resetTimer()
   void loadLogTasks()
   if (mode.value !== 'trace') executeSearch()
@@ -669,6 +738,20 @@ onBeforeUnmount(() => {
 }
 .search-panel {
   padding: 20px;
+}
+.saved-queries {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border-light);
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.saved-queries .el-tag {
+  cursor: pointer;
 }
 .filter-grid {
   display: grid;
