@@ -3,6 +3,7 @@
     <PageHeader :title="modeTitle" :description="modeDescription" :breadcrumbs="['资源控制台', '日志中心', modeTitle]">
       <template #actions>
         <el-button :icon="Refresh" :loading="loading" :disabled="!canSearch" @click="executeSearch()">刷新日志</el-button>
+        <el-button :icon="Download" :disabled="!logs.length" @click="exportLogs">导出</el-button>
         <el-button type="primary" :icon="Search" :loading="loading" :disabled="!canSearch" @click="submitSearch">查询</el-button>
       </template>
     </PageHeader>
@@ -50,7 +51,7 @@
         </label>
         <label class="filter-field">
           <span>时间范围</span>
-          <el-select v-model="rangeMs">
+          <el-select v-model="rangeMs" @change="customRange = null">
             <el-option v-for="option in rangeOptions" :key="option.value" :label="option.label" :value="option.value" />
           </el-select>
         </label>
@@ -87,7 +88,11 @@
           <h2>日志时间分布</h2>
           <p>{{ histogramSource === 'server' ? '来自服务端聚合结果' : '根据当前页日志计算，仅用于快速观察分布' }}</p>
         </div>
-        <strong>{{ formatNumber(total, 0) }} 条日志</strong>
+        <div class="histogram-heading-actions">
+          <el-tag v-if="customRange" closable effect="plain" @close="clearCustomRange"
+            >自定义时段 {{ formatTick(customRange.start) }} - {{ formatTick(customRange.end) }}</el-tag
+          ><strong>{{ formatNumber(total, 0) }} 条日志</strong>
+        </div>
       </header>
       <div class="histogram" role="img" aria-label="日志数量随时间分布直方图">
         <el-tooltip
@@ -96,7 +101,7 @@
           :content="`${formatDate(bucket.time, true)} · ${bucket.count} 条`"
           placement="top"
         >
-          <div class="histogram-column">
+          <div class="histogram-column" :class="{ active: bucketActive(bucket) }" @click="selectBucket(bucket)">
             <span class="histogram-value">{{ bucket.count || '' }}</span>
             <div class="histogram-track"><div class="histogram-bar" :style="{ height: `${barHeight(bucket.count)}%` }" /></div>
           </div>
@@ -212,7 +217,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import dayjs from 'dayjs'
-import { Refresh, Search } from '@element-plus/icons-vue'
+import { Download, Refresh, Search } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import { logseerApi } from '@/api/logseer'
@@ -288,6 +293,7 @@ const refreshMs = ref(mode.value === 'stream' ? 5000 : 15_000)
 const logs = ref<LogEntry[]>([])
 const histogram = ref<HistogramBucket[]>([])
 const histogramSource = ref<'server' | 'local'>('local')
+const customRange = ref<{ start: number; end: number } | null>(null)
 const total = ref(0)
 const loading = ref(false)
 const loadError = ref('')
@@ -451,8 +457,8 @@ async function executeSearch(resetPage = false) {
     return
   }
   const current = ++requestId
-  const end = Date.now()
-  const start = end - rangeMs.value
+  const end = customRange.value?.end || Date.now()
+  const start = customRange.value?.start || end - rangeMs.value
   loading.value = true
   loadError.value = ''
   try {
@@ -473,12 +479,42 @@ async function executeSearch(resetPage = false) {
 function submitSearch() {
   executeSearch(true)
 }
+function bucketActive(bucket: HistogramBucket) {
+  return Boolean(customRange.value && bucket.time >= customRange.value.start && bucket.time < customRange.value.end)
+}
+function selectBucket(bucket: HistogramBucket) {
+  const interval = histogram.value.length > 1 ? histogram.value[1]!.time - histogram.value[0]!.time : 5 * 60_000
+  customRange.value = { start: bucket.time, end: bucket.time + Math.max(interval, 60_000) }
+  executeSearch(true)
+}
+function clearCustomRange() {
+  customRange.value = null
+  executeSearch(true)
+}
+function csvCell(value: unknown) {
+  return `"${text(value).replaceAll('"', '""')}"`
+}
+function exportLogs() {
+  if (!logs.value.length) return
+  const rows = [
+    ['timestamp', 'level', 'pod', 'message'],
+    ...logs.value.map((entry) => [formatDate(entry.timestamp, true), entry.level, entry.pod, entry.message]),
+  ]
+  const csv = rows.map((row) => row.map(csvCell).join(',')).join('\n')
+  const url = URL.createObjectURL(new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' }))
+  const anchor = document.createElement('a')
+  anchor.href = url
+  anchor.download = `logs-${dayjs().format('YYYYMMDD-HHmmss')}.csv`
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
 function resetFilters() {
   keyword.value = ''
   level.value = ''
   pod.value = ''
   task.value = ''
   rangeMs.value = mode.value === 'stream' ? 15 * 60_000 : 60 * 60_000
+  customRange.value = null
   executeSearch(true)
 }
 async function loadLogTasks() {
@@ -728,6 +764,16 @@ onBeforeUnmount(() => {
   align-items: center;
   flex-direction: column;
   justify-content: flex-end;
+  cursor: pointer;
+}
+.histogram-column.active .histogram-bar {
+  background: var(--brand-600);
+  opacity: 1;
+}
+.histogram-heading-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
 }
 .histogram-value {
   height: 18px;

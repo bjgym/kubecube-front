@@ -240,12 +240,29 @@
               ><template #default="{ row }">{{ row.status?.succeeded || 0 }} / {{ row.spec?.completions || 1 }}</template></el-table-column
             ><el-table-column label="创建时间" width="190"
               ><template #default="{ row }">{{ formatDate(row.metadata.creationTimestamp) }}</template></el-table-column
-            ><el-table-column label="操作" width="100" align="right"
+            ><el-table-column label="操作" width="150" align="right"
               ><template #default="{ row }"
+                ><el-button link type="primary" @click="openJobPods(row)">Pods</el-button
                 ><el-button link type="danger" @click="deleteJob(row)">删除</el-button></template
               ></el-table-column
-            ><template #empty><EmptyState title="暂无关联任务" description="CronJob 到达调度时间后会在这里生成任务" /></template></el-table
-        ></template>
+            ><template #empty><EmptyState title="暂无关联任务" description="CronJob 到达调度时间后会在这里生成任务" /></template
+          ></el-table>
+          <el-dialog v-model="jobPodsOpen" :title="`任务 ${selectedJobName} 的 Pods`" width="760px">
+            <el-table v-loading="jobPodsLoading" :data="jobPods" size="small"
+              ><el-table-column label="名称" min-width="260"
+                ><template #default="{ row }"
+                  ><router-link :to="{ path: `/control/pods/${row.metadata.name}/info`, query: scope.query }">{{
+                    row.metadata.name
+                  }}</router-link></template
+                ></el-table-column
+              ><el-table-column prop="status.phase" label="状态" width="120" /><el-table-column
+                prop="status.podIP"
+                label="Pod IP"
+                width="150" /><template #empty
+                ><EmptyState title="该任务暂无 Pod" description="任务可能尚未创建 Pod，或 Pod 已被清理" /></template
+            ></el-table>
+          </el-dialog>
+        </template>
 
         <template v-else-if="activeTab === 'event'"
           ><div class="section-title">
@@ -589,6 +606,10 @@ function podVersion(name: string): 'current' | 'history' {
   return podVersions.value[name] || 'current'
 }
 const relatedJobs = ref<KubeResource[]>([])
+const jobPodsOpen = ref(false)
+const selectedJobName = ref('')
+const jobPods = ref<KubeResource[]>([])
+const jobPodsLoading = ref(false)
 const relatedLoading = ref(false)
 const events = ref<EventResource[]>([])
 const eventsLoading = ref(false)
@@ -1028,6 +1049,19 @@ async function loadEvents() {
 function onEventScopeChange() {
   if (eventScope.value === 'pod') void loadRelated().then(loadEvents)
   else void loadEvents()
+}
+async function openJobPods(job: KubeResource) {
+  selectedJobName.value = job.metadata.name
+  jobPodsOpen.value = true
+  jobPodsLoading.value = true
+  try {
+    const response = await resourceApi.list(podDefinition, context.value, { pageNum: 1, pageSize: 500 })
+    jobPods.value = (response.items || []).filter((pod) =>
+      ownerReferences(pod).some((ref) => String(ref.kind || '') === 'Job' && String(ref.name || '') === job.metadata.name),
+    )
+  } finally {
+    jobPodsLoading.value = false
+  }
 }
 async function deleteJob(job: KubeResource) {
   await ElMessageBox.confirm(`删除后 Job ${job.metadata.name} 及其 Pod 将无法恢复，确定继续吗？`, '删除任务', {

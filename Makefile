@@ -11,11 +11,9 @@ BRAND ?= Kubecube
 
 image:
 	docker build -t ${IMG} \
-		--build-arg KUBECUBE_BRAND_NAME="${BRAND}" \
 		--build-arg VITE_BRAND_NAME="${BRAND}" .
 
 image-multi-arch:
 	docker buildx build -f Dockerfile.multiarch -t ${IMG} \
-		--build-arg KUBECUBE_BRAND_NAME="${BRAND}" \
 		--build-arg VITE_BRAND_NAME="${BRAND}" \
 		--platform=linux/amd64,linux/arm64 . --push

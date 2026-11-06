@@ -9,9 +9,7 @@ COPY modern/package.json modern/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
 COPY modern ./
-ARG KUBECUBE_BRAND_NAME=KubeCube
 ARG VITE_BRAND_NAME=KubeCube
-ENV KUBECUBE_BRAND_NAME=${KUBECUBE_BRAND_NAME}
 ENV VITE_BRAND_NAME=${VITE_BRAND_NAME}
 RUN npm run build
 

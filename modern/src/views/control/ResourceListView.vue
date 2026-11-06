@@ -76,6 +76,12 @@
             }}</span>
           </template>
         </el-table-column>
+        <el-table-column v-if="config.key === 'pods'" label="CPU" width="110" align="right">
+          <template #default="{ row }">{{ podMetrics[row.metadata.name]?.cpu || '—' }}</template>
+        </el-table-column>
+        <el-table-column v-if="config.key === 'pods'" label="内存" width="120" align="right">
+          <template #default="{ row }">{{ podMetrics[row.metadata.name]?.memory || '—' }}</template>
+        </el-table-column>
         <el-table-column label="操作" width="178" fixed="right" align="right">
           <template #default="{ row }"
             ><div class="row-actions">
@@ -186,16 +192,19 @@ import StatusTag from '@/components/StatusTag.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import YamlEditorDialog from '@/components/YamlEditorDialog.vue'
 import { resourceApi } from '@/api/resource'
+import { monitorApi } from '@/api/observability'
 import { getResourceConfig, valueForColumn } from '@/config/resources'
 import { useResourceList } from '@/composables/useResourceList'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
+import { useFeatureStore } from '@/stores/feature'
 import { fromYAML, toYAML } from '@/utils/yaml'
 import type { KubeResource } from '@/types/api'
 const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
 const ui = useUiStore()
+const features = useFeatureStore()
 const config = computed(() => getResourceConfig(String(route.params.workload))!)
 const projectNamespace = computed(() => String((scope.currentProject?.spec as Record<string, unknown> | undefined)?.namespace || ''))
 const context = computed(() => ({
@@ -205,6 +214,45 @@ const context = computed(() => ({
     : scope.namespace,
 }))
 const { items, total, loading, error, search, pagination, load, onSearch, onPage, onPageSize, onSort } = useResourceList(config, context)
+const podMetrics = ref<Record<string, { cpu: string; memory: string }>>({})
+function metricValues(payload: unknown): Record<string, number> {
+  const result = (payload as { data?: { result?: Array<{ metric?: { pod?: string }; value?: [number, string] }> } })?.data?.result || []
+  return Object.fromEntries(
+    result.flatMap((entry) => (entry.metric?.pod && entry.value ? [[entry.metric.pod, Number(entry.value[1])]] : [])),
+  )
+}
+async function loadPodMetrics() {
+  if (config.value.key !== 'pods' || !features.monitoring || !items.value.length) {
+    podMetrics.value = {}
+    return
+  }
+  const pods = items.value.map((item) => item.metadata.name).slice(0, 200)
+  const selector = pods.join('|')
+  try {
+    const [cpu, memory] = await Promise.all([
+      monitorApi.query({
+        query: `sum(rate(container_cpu_usage_seconds_total{namespace="${scope.namespace}",pod=~"${selector}"}[5m])) by (pod)`,
+      }),
+      monitorApi.query({
+        query: `sum(container_memory_working_set_bytes{namespace="${scope.namespace}",pod=~"${selector}"}) by (pod)`,
+      }),
+    ])
+    const cpuValues = metricValues(cpu)
+    const memoryValues = metricValues(memory)
+    podMetrics.value = Object.fromEntries(
+      pods.map((pod) => [
+        pod,
+        {
+          cpu: cpuValues[pod] === undefined ? '—' : `${cpuValues[pod].toFixed(3)} 核`,
+          memory: memoryValues[pod] === undefined ? '—' : `${(memoryValues[pod] / 1024 ** 3).toFixed(2)} GiB`,
+        },
+      ]),
+    )
+  } catch {
+    podMetrics.value = {}
+  }
+}
+watch(items, () => void loadPodMetrics())
 const writeAllowed = computed(() => scope.canWrite(config.value.key) || scope.canWrite(config.value.plural))
 function isProtectedResource(row: KubeResource) {
   const metadata = row.metadata as Record<string, any>

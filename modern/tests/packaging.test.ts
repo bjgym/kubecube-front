@@ -10,8 +10,8 @@ describe('container packaging contracts', () => {
     expect(dockerfile).toContain('FROM docker.io/library/node:24-alpine AS builder')
     expect(dockerfile).toContain('RUN npm ci --no-audit --no-fund')
     expect(dockerfile).toContain('RUN npm run build')
-    expect(dockerfile).toContain('ARG KUBECUBE_BRAND_NAME=KubeCube')
     expect(dockerfile).toContain('ARG VITE_BRAND_NAME=KubeCube')
+    expect(dockerfile).not.toContain('KUBECUBE_BRAND_NAME')
     expect(dockerfile).toContain('COPY --from=builder /app/public /usr/share/nginx/html/public')
   })
 
@@ -19,16 +19,16 @@ describe('container packaging contracts', () => {
     const dockerfile = read('Dockerfile.multiarch')
     expect(dockerfile).toContain('ARG BUILDPLATFORM')
     expect(dockerfile).toContain('FROM --platform=$BUILDPLATFORM docker.io/library/node:24-alpine AS builder')
-    expect(dockerfile).toContain('ARG KUBECUBE_BRAND_NAME=KubeCube')
     expect(dockerfile).toContain('ARG VITE_BRAND_NAME=KubeCube')
+    expect(dockerfile).not.toContain('KUBECUBE_BRAND_NAME')
     expect(dockerfile).toContain('COPY --from=builder /app/public /usr/share/nginx/html/public')
     expect(dockerfile).toContain('FROM docker.io/library/nginx:1.27')
   })
 
-  it('passes both brand arguments from the Makefile', () => {
+  it('passes the single brand argument from the Makefile', () => {
     const makefile = read('Makefile')
-    expect(makefile).toContain('KUBECUBE_BRAND_NAME')
     expect(makefile).toContain('VITE_BRAND_NAME')
+    expect(makefile).not.toContain('KUBECUBE_BRAND_NAME')
     expect(makefile).toContain('Dockerfile.multiarch')
   })
 })

@@ -370,7 +370,10 @@ export const resources: Record<string, KubeResource[]> = {
     {
       apiVersion: 'batch/v1',
       kind: 'Job',
-      metadata: metadata('order-report-nightly', 'online-shop', 12),
+      metadata: {
+        ...metadata('order-report-nightly', 'online-shop', 12),
+        ownerReferences: [{ apiVersion: 'batch/v1', kind: 'CronJob', name: 'order-report', uid: 'cronjob-order-report' }],
+      },
       spec: { completions: 1, template: { spec: { containers } } },
       status: { succeeded: 1, startTime: created(12), completionTime: created(11) },
     },

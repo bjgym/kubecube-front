@@ -84,7 +84,7 @@ docker build -t kubecube/frontend:dev .
 `make image` builds for the current architecture. `make image-multi-arch` uses `Dockerfile.multiarch` to build and push an amd64+arm64 manifest. Set the product name at build time when needed:
 
 ```shell
-docker build -t kubecube/frontend:dev --build-arg KUBECUBE_BRAND_NAME="My Cloud" .
+docker build -t kubecube/frontend:dev --build-arg VITE_BRAND_NAME="My Cloud" .
 ```
 
 Deploy the resulting image as the frontend Deployment in the `kubecube-system` namespace.

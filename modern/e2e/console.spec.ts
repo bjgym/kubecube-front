@@ -29,6 +29,15 @@ test('login and cross-cluster workspace overview', async ({ page }) => {
   await screenshot(page, '02-namespace')
 })
 
+test('login ignores an external redirect target', async ({ page }) => {
+  await page.goto('/public/#/login?redirect=//evil.example.com/steal')
+  await page.getByPlaceholder('请输入账号').fill('admin')
+  await page.getByPlaceholder('请输入密码').fill('Admin@12345')
+  await page.getByRole('button', { name: /登\s*录/ }).click()
+  await expect(page).not.toHaveURL(/#\/login/, { timeout: 20_000 })
+  await expect(page).not.toHaveURL(/evil\.example\.com/)
+})
+
 test('deployment list, detail and YAML editor', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/control/deployments/list')
@@ -125,6 +134,9 @@ test('log search filters by log task against the Logseer endpoint', async ({ pag
   await page.getByRole('option', { name: 'shop-stdout', exact: true }).click()
   await page.getByRole('button', { name: '查询', exact: true }).click()
   await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible()
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled()
+  await page.locator('.histogram-column').first().click()
+  await expect(page.getByText(/自定义时段/)).toBeVisible()
 })
 
 test('LogConfig wizard edits matchFields and multiple inputs', async ({ page }) => {
@@ -282,12 +294,25 @@ test('workload wizard builds env volumes mounts and init containers', async ({ p
   await expect(page.getByRole('tab', { name: /Init/ })).toHaveCount(1)
 })
 
+test('CronJob jobs can drill into their pods', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/cronjobs/order-report/jobs?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: '任务列表', exact: true })).toBeVisible()
+  const row = page.locator('tr').filter({ hasText: 'order-report-nightly' }).first()
+  await row.getByRole('button', { name: 'Pods', exact: true }).click()
+  await expect(page.getByRole('dialog').getByText('任务 order-report-nightly 的 Pods', { exact: true })).toBeVisible()
+})
+
 test('Pod list row actions open events and expose eviction', async ({ page }) => {
   await login(page)
   await page.goto(
     '/public/#/control/pods/list?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
   )
   const row = page.locator('tr').filter({ hasText: 'shop-web-00-x7d9f' }).first()
+  await expect(page.getByRole('columnheader', { name: 'CPU', exact: true })).toBeVisible()
+  await expect(page.getByRole('columnheader', { name: '内存', exact: true })).toBeVisible()
   await row.getByRole('button', { name: '更多操作', exact: true }).click()
   await expect(page.getByRole('menuitem', { name: '驱逐 Pod', exact: true })).toBeVisible()
   await page.getByRole('menuitem', { name: '查看事件', exact: true }).click()
