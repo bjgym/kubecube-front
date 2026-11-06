@@ -57,6 +57,9 @@ test('live deployment list, detail and YAML editor', async ({ page }) => {
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.locator('.monaco-editor').first()).toBeVisible()
   await screenshot(page, '03-live-yaml')
+  await page.keyboard.press('Escape')
+  await page.getByRole('tab', { name: '副本', exact: true }).click()
+  await expect(page.getByText('当前版本', { exact: true }).first()).toBeVisible({ timeout: 90_000 })
 })
 
 test('live member-cluster pod list and detail', async ({ page }) => {
@@ -69,6 +72,12 @@ test('live member-cluster pod list and detail', async ({ page }) => {
   await pod.click()
   await expect(page.getByRole('heading', { name: /coredns-6554b8b87f-/ })).toBeVisible()
   await expect(page.getByText('容器', { exact: true }).first()).toBeVisible()
+  await page
+    .getByRole('link', { name: /coredns/, exact: true })
+    .first()
+    .click()
+  await expect(page.getByRole('heading', { name: /coredns/, exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('镜像', { exact: true }).first()).toBeVisible()
   await screenshot(page, '05-live-pod-detail')
 })
 
@@ -101,11 +110,17 @@ test('live platform administration pages load real data', async ({ page }) => {
     ['/public/#/platform/quota', '租户配额'],
     ['/public/#/platform/nsquota', '空间管理'],
     ['/public/#/platform/cluster/list', '集群管理'],
+    ['/public/#/platform/bootstrap', '快速开始'],
   ]
   for (const [path, heading] of pages) {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 90_000 })
   }
+  await expect(page.getByText('操作审计', { exact: true })).toHaveCount(0)
+  await page.goto('/public/#/platform/AlertmanagerConfig')
+  await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.goto('/public/#/platform/cluster/pivot-cluster/info')
+  await expect(page.getByRole('heading', { name: /pivot-cluster/ })).toBeVisible({ timeout: 90_000 })
   await screenshot(page, '07-live-platform-admin')
 })
 
@@ -178,6 +193,222 @@ test('live four-role identities from the backend', async ({ browser, page }) => 
       })
     }
   }
+})
+
+test('live four-role menus and direct URL boundaries', async ({ browser, page }) => {
+  test.setTimeout(300_000)
+  const secret = 'KubeCube@2026'
+  const users = ['live-tenant-admin', 'live-project-admin', 'live-normal-user']
+  await login(page)
+  try {
+    for (const user of users) await ensureLiveUser(page, user, secret)
+    await ensureLiveBinding(page, users[0]!, 'kubecube-tenant-digital-retail', 'tenant-admin', 'digital-retail')
+    await ensureLiveBinding(page, users[1]!, 'kubecube-project-online-business', 'project-admin', 'digital-retail', 'online-business')
+    const baseURL = process.env.KUBECUBE_LIVE_BASE_URL || 'http://127.0.0.1:4331'
+    const cases = [
+      { user: users[0]!, path: '/public/#/platform/tenant/tenant', heading: '租户与项目' },
+      { user: users[1]!, path: '/public/#/platform/role/platform', heading: '角色管理' },
+      {
+        user: users[2]!,
+        path: '/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system',
+        heading: 'Deployments',
+      },
+    ]
+    for (const item of cases) {
+      const context = await browser.newContext({ baseURL })
+      const rolePage = await context.newPage()
+      try {
+        await loginAs(rolePage, item.user, secret)
+        await rolePage.goto(item.path)
+        await expect(rolePage.getByRole('heading', { name: item.heading, exact: true })).toBeVisible({ timeout: 60_000 })
+        await rolePage.goto('/public/#/platform/user/list')
+        await expect(rolePage.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible({
+          timeout: 30_000,
+        })
+      } finally {
+        await context.close()
+      }
+    }
+  } finally {
+    for (const user of users) {
+      await page.request.delete('/api/v1/cube/authorization/bindings', {
+        params: { name: `${user}-in-kubecube-tenant-digital-retail`, namespace: 'kubecube-tenant-digital-retail' },
+      })
+      await page.request.delete('/api/v1/cube/authorization/bindings', {
+        params: { name: `${user}-in-kubecube-project-online-business`, namespace: 'kubecube-project-online-business' },
+      })
+    }
+  }
+})
+
+test('live cluster switch reloads namespaces and keeps the target scope', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.goto('/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.locator('.scope-select').filter({ hasText: '集群' }).locator('.el-select').click()
+  await page.getByRole('option', { name: /member-arm64-6002/ }).click()
+  await expect(page).toHaveURL(/cluster=member-arm64-6002/, { timeout: 60_000 })
+  await page.locator('.scope-select').filter({ hasText: '空间' }).locator('.el-select').click()
+  await page.getByRole('option', { name: 'kube-system', exact: true }).click()
+  await expect(page).toHaveURL(/cluster=member-arm64-6002/, { timeout: 60_000 })
+  await expect(page).toHaveURL(/namespace=kube-system/, { timeout: 60_000 })
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible({ timeout: 90_000 })
+})
+
+test('live CronJob detail drills from job to pod', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  const base = '/api/v1/cube/proxy/clusters/pivot-cluster/apis/batch/v1/namespaces/default'
+  const core = '/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/namespaces/default'
+  const cron = 'live-ui-cron'
+  const job = 'live-ui-cron-job'
+  const pod = 'live-ui-cron-pod'
+  await page.request.delete(`${core}/pods/${pod}`)
+  await page.request.delete(`${base}/jobs/${job}`)
+  await page.request.delete(`${base}/cronjobs/${cron}`)
+  const createdCron = await page.request.post(`${base}/cronjobs`, {
+    data: {
+      apiVersion: 'batch/v1',
+      kind: 'CronJob',
+      metadata: { name: cron, namespace: 'default' },
+      spec: {
+        schedule: '0 3 * * *',
+        suspend: true,
+        jobTemplate: {
+          spec: { template: { spec: { containers: [{ name: 'job', image: 'busybox:1.36', command: ['true'] }], restartPolicy: 'Never' } } },
+        },
+      },
+    },
+  })
+  expect(createdCron.ok()).toBeTruthy()
+  const cronUid = String(((await createdCron.json()) as Record<string, any>).metadata.uid)
+  const createdJob = await page.request.post(`${base}/jobs`, {
+    data: {
+      apiVersion: 'batch/v1',
+      kind: 'Job',
+      metadata: {
+        name: job,
+        namespace: 'default',
+        ownerReferences: [{ apiVersion: 'batch/v1', kind: 'CronJob', name: cron, uid: cronUid }],
+      },
+      spec: { template: { spec: { containers: [{ name: 'job', image: 'busybox:1.36', command: ['true'] }], restartPolicy: 'Never' } } },
+    },
+  })
+  expect(createdJob.ok()).toBeTruthy()
+  const jobUid = String(((await createdJob.json()) as Record<string, any>).metadata.uid)
+  const createdPod = await page.request.post(`${core}/pods`, {
+    data: {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      metadata: { name: pod, namespace: 'default', ownerReferences: [{ apiVersion: 'batch/v1', kind: 'Job', name: job, uid: jobUid }] },
+      spec: { containers: [{ name: 'job', image: 'busybox:1.36', command: ['true'] }], restartPolicy: 'Never' },
+    },
+  })
+  expect(createdPod.ok()).toBeTruthy()
+  try {
+    await page.goto(`/public/#/control/cronjobs/${cron}/info?cluster=pivot-cluster&namespace=default`)
+    await expect(page.getByRole('heading', { name: cron, exact: true })).toBeVisible({ timeout: 90_000 })
+    await page.getByRole('tab', { name: '任务列表', exact: true }).click()
+    await expect(page.getByText(job, { exact: true }).first()).toBeVisible({ timeout: 90_000 })
+    await page.locator('tr').filter({ hasText: job }).first().getByRole('button', { name: 'Pods', exact: true }).click()
+    await expect(page.getByRole('dialog').getByText(`任务 ${job} 的 Pods`, { exact: true })).toBeVisible()
+    await expect(page.getByRole('dialog').getByText(pod, { exact: true }).first()).toBeVisible()
+  } finally {
+    await page.request.delete(`${core}/pods/${pod}`)
+    await page.request.delete(`${base}/jobs/${job}`)
+    await page.request.delete(`${base}/cronjobs/${cron}`)
+  }
+})
+
+test('live PVC detail shows the mounted pod', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  const base = '/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/namespaces/default'
+  const pvc = 'live-ui-pvc'
+  const pod = 'live-ui-pvc-pod'
+  await page.request.delete(`${base}/pods/${pod}`)
+  await page.request.delete(`${base}/persistentvolumeclaims/${pvc}`)
+  const createdPvc = await page.request.post(`${base}/persistentvolumeclaims`, {
+    data: {
+      apiVersion: 'v1',
+      kind: 'PersistentVolumeClaim',
+      metadata: { name: pvc, namespace: 'default' },
+      spec: { accessModes: ['ReadWriteOnce'], resources: { requests: { storage: '1Gi' } } },
+    },
+  })
+  expect(createdPvc.ok()).toBeTruthy()
+  const createdPod = await page.request.post(`${base}/pods`, {
+    data: {
+      apiVersion: 'v1',
+      kind: 'Pod',
+      metadata: { name: pod, namespace: 'default' },
+      spec: {
+        containers: [{ name: 'app', image: 'nginx:1.27' }],
+        volumes: [{ name: 'data', persistentVolumeClaim: { claimName: pvc } }],
+      },
+    },
+  })
+  expect(createdPod.ok()).toBeTruthy()
+  try {
+    await page.goto(`/public/#/control/persistentvolumeclaims/${pvc}/info?cluster=pivot-cluster&namespace=default`)
+    await expect(page.getByRole('heading', { name: pvc, exact: true })).toBeVisible({ timeout: 90_000 })
+    await page.getByRole('tab', { name: '挂载 Pod', exact: true }).click()
+    await expect(page.getByText(pod, { exact: true }).first()).toBeVisible({ timeout: 90_000 })
+  } finally {
+    await page.request.delete(`${base}/pods/${pod}`)
+    await page.request.delete(`${base}/persistentvolumeclaims/${pvc}`)
+  }
+})
+
+test('live container terminal connects through WebConsole', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  const pods = await page.request.get('/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/namespaces/kubecube-system/pods?limit=100')
+  expect(pods.ok()).toBeTruthy()
+  const body = (await pods.json()) as { items?: Array<Record<string, unknown>> }
+  const pod = (body.items || []).find((item) => String((item.metadata as Record<string, unknown>)?.name || '').startsWith('audit-')) as
+    Record<string, unknown> | undefined
+  expect(pod).toBeTruthy()
+  const podName = String((pod!.metadata as Record<string, unknown>).name)
+  const containerName = String(((pod!.spec as Record<string, unknown>).containers as Array<Record<string, unknown>>)[0]?.name)
+  await page.goto(`/public/#/control/pods/${podName}/${podName}/${containerName}?cluster=pivot-cluster&namespace=kubecube-system`)
+  await expect(page.getByRole('button', { name: '打开终端', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.getByRole('button', { name: '打开终端', exact: true }).click()
+  await expect(page.getByText('已连接', { exact: true })).toBeVisible({ timeout: 90_000 })
+  await screenshot(page, '09-live-terminal')
+})
+
+test('live logout and password reset round trip', async ({ page }) => {
+  test.setTimeout(180_000)
+  const userName = 'live-normal-user'
+  const oldPassword = 'KubeCube@2026'
+  const newPassword = 'KubeCube@2026!'
+  await login(page)
+  await page.getByRole('button', { name: '用户菜单', exact: true }).click()
+  await page.getByText('安全退出', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/login/, { timeout: 30_000 })
+  await page.getByRole('button', { name: '忘记密码？', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('请输入账号').fill(userName)
+  await dialog.getByPlaceholder('请输入当前密码').fill(oldPassword)
+  await dialog.getByPlaceholder('请输入新密码').fill(newPassword)
+  await dialog.getByPlaceholder('请再次输入').fill(newPassword)
+  await dialog.getByRole('button', { name: '确认重置', exact: true }).click()
+  await expect(page.getByText(/密码.*成功|重置成功/).first()).toBeVisible()
+  const loginResponse = await page.request.post('/api/v1/cube/login', {
+    data: { name: userName, password: newPassword, loginType: 'normal' },
+  })
+  expect(loginResponse.ok()).toBeTruthy()
+  await page.request.post('/api/v1/cube/login', { data: { name: userName, password: password, loginType: 'normal' } })
+  await page.request.put(`/api/v1/cube/user/${userName}`, { data: { spec: { password: oldPassword } } })
+})
+
+test('live CRD list loads from the cluster', async ({ page }) => {
+  await login(page)
+  await page.goto('/public/#/control/crd/Cluster?cluster=pivot-cluster')
+  await expect(page.getByRole('heading', { name: '自定义资源', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.locator('.el-table').first()).toBeVisible({ timeout: 90_000 })
 })
 
 test('live ConfigMap create and delete round trip', async ({ page }) => {
