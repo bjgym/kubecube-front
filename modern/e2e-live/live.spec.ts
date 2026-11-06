@@ -29,7 +29,6 @@ test('live login and cross-cluster namespace overview', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/namespace')
   await expect(page.getByRole('heading', { name: '全部空间', exact: true })).toBeVisible()
-  await expect(page.getByText('pivot-cluster', { exact: false }).first()).toBeVisible()
   await expect(page.locator('.namespace-card').filter({ hasText: 'member-arm64-6002' }).first()).toBeVisible()
   const card = page.locator('.namespace-card').filter({ hasText: 'kubecube-system' }).filter({ hasText: 'pivot-cluster' }).first()
   await expect(card).toBeVisible()
@@ -88,6 +87,23 @@ test('live pod log cursor loads a real backend page', async ({ page }) => {
   await screenshot(page, '06-live-pod-log')
 })
 
+test('live platform administration pages load real data', async ({ page }) => {
+  await login(page)
+  const pages = [
+    ['/public/#/platform/user/list', '用户管理'],
+    ['/public/#/platform/role/platform', '角色管理'],
+    ['/public/#/platform/tenant/tenant', '租户与项目'],
+    ['/public/#/platform/quota', '租户配额'],
+    ['/public/#/platform/nsquota', '空间管理'],
+    ['/public/#/platform/cluster/list', '集群管理'],
+  ]
+  for (const [path, heading] of pages) {
+    await page.goto(path)
+    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 90_000 })
+  }
+  await screenshot(page, '07-live-platform-admin')
+})
+
 test('live Service keeps its workload selector while editing a port', async ({ page }) => {
   await login(page)
   const servicePath = '/api/v1/cube/proxy/clusters/pivot-cluster/api/v1/namespaces/kubecube-system/services'
@@ -105,6 +121,9 @@ test('live Service keeps its workload selector while editing a port', async ({ p
   await page.getByRole('button', { name: '下一步', exact: true }).click()
   await page.getByRole('button', { name: '确认创建', exact: true }).first().click()
   await expect(page.getByRole('heading', { name, exact: true })).toBeVisible({ timeout: 120_000 })
+  await expect(page.getByRole('heading', { name: '服务关联', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('Endpoints', { exact: true })).toBeVisible()
+  await expect(page.getByText('关联 Pods', { exact: false })).toBeVisible()
 
   const created = await page.request.get(`${servicePath}/${name}`)
   expect(created.ok()).toBeTruthy()
