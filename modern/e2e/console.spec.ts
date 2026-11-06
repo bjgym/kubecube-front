@@ -60,6 +60,38 @@ test('identity initialization failure can be retried', async ({ page }) => {
   await expect(page).not.toHaveURL(/#\/login/, { timeout: 20_000 })
 })
 
+test('password reset validates the current password and sets a new one', async ({ page }) => {
+  await page.goto('/public/#/login')
+  await page.getByRole('button', { name: '忘记密码？', exact: true }).click()
+  const dialog = page.getByRole('dialog')
+  await dialog.getByPlaceholder('请输入账号').fill('admin')
+  await dialog.getByPlaceholder('请输入当前密码').fill('Admin@12345')
+  await dialog.getByPlaceholder('请输入新密码').fill('Admin@12345!')
+  await dialog.getByPlaceholder('请再次输入').fill('Admin@12345!')
+  await dialog.getByRole('button', { name: '确认重置', exact: true }).click()
+  await expect(page.getByText(/密码.*成功|重置成功/).first()).toBeVisible()
+})
+
+test('a 401 response clears the session and returns to login', async ({ page }) => {
+  await login(page)
+  await page.evaluate(() => localStorage.setItem('kubecube-mock-401', '1'))
+  await page.goto(
+    '/public/#/control/deployments/list?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page).toHaveURL(/#\/login/, { timeout: 20_000 })
+})
+
+test('stream mode pauses and resumes automatic refresh', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/lens/stream?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: '实时日志流', exact: true })).toBeVisible()
+  await expect(page.getByText('自动刷新已开启', { exact: true })).toBeVisible()
+  await page.locator('.el-switch').first().click()
+  await expect(page.getByText('自动刷新已暂停', { exact: true })).toBeVisible()
+})
+
 test('deployment list, detail and YAML editor', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/control/deployments/list')
@@ -607,6 +639,18 @@ test('Deployment detail separates current and historical replica pods', async ({
   await page.getByRole('option', { name: '历史版本', exact: true }).click()
   await expect(page.getByRole('link', { name: 'shop-web-06-x7d9f', exact: true })).toBeVisible()
   await expect(page.getByRole('link', { name: 'shop-web-00-x7d9f', exact: true })).toHaveCount(0)
+})
+
+test('Pod detail opens the container terminal drawer', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/pods/shop-web-00-x7d9f/info?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: 'shop-web-00-x7d9f', exact: true })).toBeVisible()
+  await page.getByRole('link', { name: 'app', exact: true }).click()
+  await expect(page.getByRole('button', { name: '打开终端', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '打开终端', exact: true }).click()
+  await expect(page.getByText('容器终端', { exact: true }).first()).toBeVisible()
 })
 
 test('Pod detail exposes containers and PVC detail lists mounted pods', async ({ page }) => {

@@ -319,6 +319,14 @@ export const mockAdapter: AxiosAdapter = async (config) => {
   const body = parseBody(config.data)
   const data = record(body)
 
+  if (
+    typeof window !== 'undefined' &&
+    window.localStorage.getItem('kubecube-mock-401') === '1' &&
+    !path.includes('/login') &&
+    !path.includes('/oauth/')
+  )
+    fail(config, 401, '会话已过期', 'Unauthorized')
+
   if (path === '/api/v1/cube/login')
     return response(config, { metadata: { name: text(data.name) || 'admin' }, spec: { displayName: '平台管理员' } })
   if (path === '/api/v1/cube/oauth/redirect') {
