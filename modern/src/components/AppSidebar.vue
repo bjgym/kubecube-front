@@ -57,7 +57,7 @@ import {
   TopRight,
 } from '@element-plus/icons-vue'
 import AppLogo from './AppLogo.vue'
-import { hasAnyRole } from '@/config/access'
+import { canAccessPath } from '@/config/policy'
 import { controlNavigation, platformNavigation, type NavItem } from '@/config/navigation'
 import { useAuthStore } from '@/stores/auth'
 import { useFeatureStore } from '@/stores/feature'
@@ -91,18 +91,20 @@ const icons: Record<string, unknown> = {
 }
 const isPlatform = computed(() => route.path.startsWith('/platform'))
 const activePath = computed(() => route.path)
+const featureAccess = computed(() => ({ monitoring: features.monitoring, logseer: features.logseer, audit: features.audit }))
+function canSee(item: NavItem): boolean {
+  if (item.path && !canAccessPath(item.path, auth.identities, featureAccess.value, features.auditEnabled)) return false
+  if (item.feature === 'monitoring' && !features.monitoring) return false
+  if (item.feature === 'logseer' && !features.logseer) return false
+  if (item.feature === 'audit' && !features.auditAvailable) return false
+  return true
+}
 const visibleItems = computed(() =>
   (isPlatform.value ? platformNavigation : controlNavigation)
-    .filter((item) => {
-      if (!hasAnyRole(auth.identities, item.roles)) return false
-      if (!item.feature) return true
-      if (item.feature === 'monitoring') return features.monitoring
-      if (item.feature === 'logseer') return features.logseer
-      return features.audit
-    })
+    .filter(canSee)
     .map((item) => ({
       ...item,
-      children: item.children?.filter((child) => hasAnyRole(auth.identities, child.roles)),
+      children: item.children?.filter((child) => canSee({ ...child, icon: item.icon })),
     }))
     .filter((item) => !item.children || item.children.length > 0),
 )

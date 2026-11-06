@@ -176,6 +176,42 @@ test('project administrators are denied platform-only routes', async ({ page }) 
   await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible()
 })
 
+test('normal users keep control access and cannot open platform pages directly', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('kubecube-mock-role', 'user'))
+  await login(page)
+  await page.goto('/public/#/platform/user/list')
+  await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible()
+  await page.goto('/public/#/control/deployments/list')
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible()
+})
+
+test('ConfigMap wizard edits structured keys', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/configmaps/create?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: '创建 ConfigMap', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await page.getByPlaceholder('键 / 文件名').fill('app.properties')
+  await page.getByPlaceholder('值或文件内容').fill('feature=true')
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '确认资源声明', exact: true })).toBeVisible()
+})
+
+test('PVC wizard loads real StorageClass options', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/persistentvolumeclaims/create?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: '创建 PVC', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  const storageClass = page.locator('.el-form-item').filter({ hasText: '存储类别' }).locator('.el-select')
+  await storageClass.click()
+  await page.getByRole('option', { name: 'local-path', exact: true }).click()
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '确认资源声明', exact: true })).toBeVisible()
+})
+
 test('workload wizard builds env volumes mounts and init containers', async ({ page }) => {
   await login(page)
   await page.goto(

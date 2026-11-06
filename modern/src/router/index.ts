@@ -5,6 +5,7 @@ import { useFeatureStore } from '@/stores/feature'
 import { createUnauthorizedGate } from '@/utils/unauthorized'
 import { useScopeStore } from '@/stores/scope'
 import { hasAnyRole } from '@/config/access'
+import { canAccessPath } from '@/config/policy'
 import { getResourceConfig } from '@/config/resources'
 import { splitInternalLocation } from '@/utils/last-location'
 
@@ -258,17 +259,19 @@ router.beforeEach(async (to) => {
     storageLikeSaveLastLocation(to.fullPath)
     return { name: 'login', query: { redirect: to.fullPath } }
   }
+  const featureStore = useFeatureStore()
   try {
     await auth.initialize()
-    const features = useFeatureStore()
-    if (!features.loaded) await features.load()
+    if (!featureStore.loaded) await featureStore.load()
   } catch {
     storageLikeSaveLastLocation(to.fullPath)
     return { name: 'login', query: { redirect: to.fullPath } }
   }
+  const features = { monitoring: featureStore.monitoring, logseer: featureStore.logseer, audit: featureStore.audit }
+  if (!canAccessPath(to.path, auth.identities, features, featureStore.auditEnabled)) return { name: 'noauth' }
   if (to.meta.requiresManager && !auth.canManage) return { name: 'noauth' }
   if (to.meta.requiresRoles && !hasAnyRole(auth.identities, to.meta.requiresRoles)) return { name: 'noauth' }
-  if (to.meta.feature && !useFeatureStore().features[to.meta.feature]) return { name: 'noauth' }
+  if (to.meta.feature && !featureStore.features[to.meta.feature]) return { name: 'noauth' }
   const workload = typeof to.params.workload === 'string' ? to.params.workload : ''
   if (workload && !getResourceConfig(workload)) return { name: 'not-found' }
   return true

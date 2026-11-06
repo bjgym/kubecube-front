@@ -1,13 +1,16 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { authApi } from '@/api/auth'
+import { auditApi } from '@/api/observability'
 
 export const useFeatureStore = defineStore('feature', () => {
   const features = ref<Record<string, boolean>>({})
   const loaded = ref(false)
+  const auditEnabled = ref(false)
   const monitoring = computed(() => features.value['kubecube-monitoring'] === true)
   const logseer = computed(() => features.value.logseer === true)
   const audit = computed(() => features.value.audit === true)
+  const auditAvailable = computed(() => audit.value && auditEnabled.value)
 
   async function load() {
     try {
@@ -20,7 +23,14 @@ export const useFeatureStore = defineStore('feature', () => {
     } finally {
       loaded.value = true
     }
+    if (audit.value) {
+      try {
+        auditEnabled.value = await auditApi.enabled()
+      } catch {
+        auditEnabled.value = false
+      }
+    }
   }
 
-  return { features, loaded, monitoring, logseer, audit, load }
+  return { features, loaded, auditEnabled, monitoring, logseer, audit, auditAvailable, load }
 })

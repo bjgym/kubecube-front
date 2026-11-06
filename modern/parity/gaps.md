@@ -5,11 +5,10 @@ These surfaces are not yet complete under the acceptance rules. They are kept ou
 
 | Area                  | Gap                                                                                     | Next action                                                                                        |
 | --------------------- | --------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| ConfigMap             | No structured key/value editor; advanced YAML is the only entry                         | Add a ConfigMap type editor with add/edit/delete and unchanged-key preservation                    |
 | PrometheusRule        | Only PromQL expression editing; no normal mode object/dimension/metric/threshold/AND/OR | Add a normal-mode rule builder and retain PromQL as advanced mode                                  |
 | Global Alertmanager   | Route/receivers only; no global SMTP/WeCom settings                                     | Add structured global SMTP and WeCom fields while preserving YAML                                  |
 | LogConfig             | `matchFields` and multiple `inputs` are not structured; only the first input is edited  | Add repeatable inputs and matchFields, preserving untouched inputs                                 |
-| PVC                   | StorageClass is free text; Mount By/associated replicas are incomplete                  | Load StorageClass resources into a select and complete the detail facts                            |
+| PVC                   | Mount By/associated replicas are incomplete                                             | Complete the PVC detail facts                                                                      |
 | Pod detail            | Row-level YAML/events/delete and Pod eviction action are incomplete                     | Add per-pod actions with confirmations and failure feedback                                        |
 | CronJob detail        | Job list cannot drill into a selected Job's Pods                                        | Add Job → Pod selection                                                                            |
 | Pod list              | CPU/memory usage columns are absent                                                     | Add monitoring-backed usage with a disabled-monitoring fallback                                    |

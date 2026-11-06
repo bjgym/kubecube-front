@@ -337,7 +337,15 @@
           <template v-else-if="config.key === 'persistentvolumeclaims'"
             ><div class="form-grid">
               <el-form-item label="存储容量"><el-input v-model="form.storage" placeholder="10Gi" /></el-form-item
-              ><el-form-item label="存储类别"><el-input v-model="form.storageClass" placeholder="local-path" /></el-form-item
+              ><el-form-item label="存储类别"
+                ><el-select
+                  v-model="form.storageClass"
+                  clearable
+                  filterable
+                  allow-create
+                  default-first-option
+                  placeholder="选择 StorageClass"
+                  ><el-option v-for="name in storageClassOptions" :key="name" :label="name" :value="name" /></el-select></el-form-item
               ><el-form-item label="访问模式"
                 ><el-select v-model="form.accessMode"
                   ><el-option label="独占读写 (ReadWriteOnce)" value="ReadWriteOnce" /><el-option
@@ -508,7 +516,7 @@ import CodeEditor from '@/components/CodeEditor.vue'
 import ContainerAdvancedForm from '@/components/workload/ContainerAdvancedForm.vue'
 import PodSettingsForm from '@/components/workload/PodSettingsForm.vue'
 import NetworkPolicyForm from '@/components/workload/NetworkPolicyForm.vue'
-import { resourceApi } from '@/api/resource'
+import { resourceApi, type ResourceDefinition } from '@/api/resource'
 import { getResourceConfig, type ResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
 import { mergeServiceSpec, serviceSelectorFromWorkload } from '@/domain/service'
@@ -730,6 +738,23 @@ interface ServiceWorkloadOption {
 }
 const serviceWorkloadOptions = ref<ServiceWorkloadOption[]>([])
 const serviceWorkloadsLoading = ref(false)
+const storageClassOptions = ref<string[]>([])
+const storageClassDefinition: ResourceDefinition = {
+  plural: 'storageclasses',
+  kind: 'StorageClass',
+  group: 'storage.k8s.io',
+  version: 'v1',
+  namespaced: false,
+}
+async function loadStorageClasses() {
+  if (config.value.key !== 'persistentvolumeclaims' || !contextCluster.value) return
+  try {
+    const response = await resourceApi.list(storageClassDefinition, { cluster: contextCluster.value }, { pageNum: 1, pageSize: 500 })
+    storageClassOptions.value = (response.items || []).map((item) => item.metadata.name).filter(Boolean)
+  } catch {
+    storageClassOptions.value = []
+  }
+}
 async function loadServiceWorkloads() {
   if (config.value.key !== 'services' || !contextCluster.value || !contextNamespace.value) return
   serviceWorkloadsLoading.value = true
@@ -1308,6 +1333,7 @@ onMounted(async () => {
     yamlContent.value = previewYaml.value
   }
   if (config.value.key === 'services') await loadServiceWorkloads()
+  if (config.value.key === 'persistentvolumeclaims') await loadStorageClasses()
   await nextTick()
   loaded.value = true
   dirty.value = false
