@@ -328,7 +328,7 @@ test('live resource API contracts create read delete', async ({ page }) => {
   await deleteEventually(page, `${quotaCollection}/live-quota`)
   await deleteEventually(page, `${namespacePath}/live-quota-ns`)
 
-  const monitoringNs = 'kubecube-monitoring'
+  const monitoringNs = 'live-monitoring'
   await deleteEventually(page, `${namespacePath}/${monitoringNs}`)
   expect(
     (

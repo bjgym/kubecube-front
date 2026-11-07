@@ -45,6 +45,42 @@ test('live login and cross-cluster namespace overview', async ({ page }) => {
   await screenshot(page, '01-live-namespace')
 })
 
+test('live dashboard renders Prometheus panels and dimensions', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.goto(
+    '/public/#/control/dashboard?tenant=digital-retail&project=online-business&cluster=pivot-cluster&namespace=online-shop',
+  )
+  await expect(page.getByText('核心指标', { exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('实例在线', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('Go 协程趋势', { exact: true })).toBeVisible()
+  await expect(page.getByText('实例状态', { exact: true })).toBeVisible()
+  await expect(page.locator('.el-table').first()).toBeVisible()
+  await expect(page.locator('canvas').first()).toBeVisible()
+  await expect(page.getByText('实例', { exact: true }).first()).toBeVisible()
+  await expect(page.getByText('127.0.0.1:9090', { exact: true }).first()).toBeVisible()
+})
+
+test('live global alert config saves and removes its secret', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.goto('/public/#/platform/AlertmanagerConfig')
+  await expect(page.getByRole('heading', { name: '全局告警配置', exact: true })).toBeVisible({ timeout: 90_000 })
+  const create = page.getByRole('button', { name: '创建配置', exact: true })
+  const save = page.getByRole('button', { name: '保存配置', exact: true })
+  const remove = page.getByRole('button', { name: '删除配置', exact: true })
+  if (await create.isVisible().catch(() => false)) {
+    await create.click()
+  } else {
+    await save.click()
+  }
+  await expect(page.getByText(/保存成功|已保存|创建成功/).first()).toBeVisible({ timeout: 60_000 })
+  await expect(remove).toBeEnabled({ timeout: 60_000 })
+  await remove.click()
+  await page.getByRole('button', { name: /确认|删除/ }).last().click()
+  await expect(page.getByText(/删除成功|已删除/).first()).toBeVisible({ timeout: 60_000 })
+})
+
 test('live deployment list, detail and YAML editor', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')
@@ -120,7 +156,7 @@ test('live platform administration pages load real data', async ({ page }) => {
   }
   await expect(page.getByText('操作审计', { exact: true })).toHaveCount(0)
   await page.goto('/public/#/platform/AlertmanagerConfig')
-  await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByRole('heading', { name: '全局告警配置', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.goto('/public/#/platform/cluster/pivot-cluster/info')
   await expect(page.getByRole('heading', { name: /pivot-cluster/ })).toBeVisible({ timeout: 90_000 })
   await page.goto('/public/#/platform/cluster/pivot-cluster/node')
