@@ -123,6 +123,8 @@ test('live log search queries Elasticsearch logs', async ({ page }) => {
   await expect(page.getByRole('heading', { name: '日志搜索', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.locator('.filter-field').filter({ hasText: '日志任务' }).locator('.el-select').click()
   await page.getByRole('option', { name: 'shop-stdout-default', exact: true }).click()
+  await page.locator('.filter-field').filter({ hasText: '时间范围' }).locator('.el-select').click()
+  await page.getByRole('option', { name: '近 24 小时', exact: true }).click()
   await page.getByRole('button', { name: '查询', exact: true }).click()
   await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible({
     timeout: 60_000,

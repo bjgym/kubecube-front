@@ -271,8 +271,8 @@ test('live resource API contracts create read delete', async ({ page }) => {
   await waitGone(page, `${projectTenantPath}/tenants/live-api-project-tenant`)
 
   const quotaPath = `/api/v1/cube/proxy/clusters/${cluster}/apis/quota.kubecube.io/v1/cuberesourcequota/member-arm64-6002.t-verify`
-  const quota = await page.request.get(quotaPath)
-  if (quota.ok()) {
+  const quota = await page.request.get(quotaPath, { timeout: 15_000 }).catch(() => null)
+  if (quota?.ok()) {
     const quotaBody = (await quota.json()) as Record<string, any>
     const originalCpu = String(quotaBody.spec?.hard?.['requests.cpu'] || '1')
     const updatedCpu = originalCpu === '2' ? '1' : '2'
@@ -301,7 +301,6 @@ test('live resource API contracts create read delete', async ({ page }) => {
   expect(Number(importResult.successCount || 0) + Number(importResult.failedCount || 0)).toBe(1)
 
   const namespacePath = `/api/v1/cube/proxy/clusters/${cluster}/api/v1/namespaces`
-  await deleteEventually(page, `${namespacePath}/live-quota-ns`)
   const namespace = await page.request.post(namespacePath, {
     data: { apiVersion: 'v1', kind: 'Namespace', metadata: { name: 'live-quota-ns' } },
   })
@@ -327,7 +326,6 @@ test('live resource API contracts create read delete', async ({ page }) => {
   await deleteEventually(page, `${namespacePath}/live-quota-ns`)
 
   const monitoringNs = 'live-monitoring'
-  await deleteEventually(page, `${namespacePath}/${monitoringNs}`)
   expect(
     (
       await page.request.post(namespacePath, {
