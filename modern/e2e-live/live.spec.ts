@@ -116,6 +116,55 @@ test('live audit list sorts and exports', async ({ page }) => {
   await download
 })
 
+test('live log search queries Elasticsearch logs', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.goto('/public/#/control/lens/normal?tenant=digital-retail&project=online-business&cluster=pivot-cluster&namespace=online-shop')
+  await expect(page.getByRole('heading', { name: '日志搜索', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.locator('.filter-field').filter({ hasText: '日志任务' }).locator('.el-select').click()
+  await page.getByRole('option', { name: 'shop-stdout-default', exact: true }).click()
+  await page.getByRole('button', { name: '查询', exact: true }).click()
+  await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible({
+    timeout: 60_000,
+  })
+  await expect(page.getByRole('button', { name: '导出', exact: true })).toBeEnabled()
+  await page.locator('.histogram-column').first().click()
+  await expect(page.getByText(/自定义时段/)).toBeVisible()
+})
+
+test('live logconfig wizard creates a structured config', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  const name = 'live-logconfig'
+  await page.goto('/public/#/control/logconfigs/create?cluster=pivot-cluster&namespace=default')
+  await expect(page.getByRole('heading', { name: '创建 LogConfig', exact: true })).toBeVisible({ timeout: 90_000 })
+  await page.getByPlaceholder('例如：order-service').fill(name)
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await page.getByRole('button', { name: '添加匹配字段', exact: true }).click()
+  await page.getByPlaceholder('匹配字段名，例如 app').fill('app')
+  await page.getByPlaceholder('匹配值，多个值用逗号分隔').fill('shop-web')
+  await page.getByRole('button', { name: '下一步', exact: true }).click()
+  await expect(page.getByRole('heading', { name: '确认资源声明', exact: true })).toBeVisible()
+  await page.getByRole('button', { name: '确认创建', exact: true }).first().click()
+  await expect(page.getByText(/创建成功|已创建/).first()).toBeVisible({ timeout: 60_000 })
+  await page.goto('/public/#/control/logconfigs/list?cluster=pivot-cluster&namespace=default')
+  await expect(page.getByText(name, { exact: true }).first()).toBeVisible({ timeout: 60_000 })
+  await page.request.delete(`/api/v2/logseer/extends/clusters/pivot-cluster/namespaces/default/logconfigs/${name}`)
+})
+
+test('live log stream pauses and resumes automatic refresh', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.goto('/public/#/control/lens/stream?cluster=pivot-cluster&namespace=default')
+  await expect(page.getByRole('heading', { name: '实时日志流', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText('自动刷新已开启', { exact: true })).toBeVisible({ timeout: 60_000 })
+  await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible({
+    timeout: 60_000,
+  })
+  await page.locator('.el-switch').first().click()
+  await expect(page.getByText('自动刷新已暂停', { exact: true })).toBeVisible()
+})
+
 test('live deployment list, detail and YAML editor', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')

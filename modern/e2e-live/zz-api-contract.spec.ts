@@ -245,8 +245,6 @@ test('live resource API contracts create read delete', async ({ page }) => {
   await deleteEventually(page, `${crdPath}/livecrds.live.kubecube.io`)
 
   const projectTenantPath = `/api/v1/cube/proxy/clusters/${cluster}/apis/tenant.kubecube.io/v1`
-  await deleteEventually(page, `${projectTenantPath}/projects/live-api-project`)
-  await deleteEventually(page, `${projectTenantPath}/tenants/live-api-project-tenant`)
   const projectTenant = await page.request.post(`${projectTenantPath}/tenants`, {
     data: {
       apiVersion: 'tenant.kubecube.io/v1',
