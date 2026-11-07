@@ -295,7 +295,14 @@ async function exportCsv() {
     download(blob, serverName || `audit-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.csv`)
     ElMessage.success('CSV 已导出')
   } catch (error) {
-    exportError.value = `CSV 导出失败：${errorText(error)}`
+    try {
+      const response = (await auditApi.list({ ...buildParams(false), page: 1, size: 10000 })) as AuditResponse
+      const blob = new Blob([eventsCsv(response.Events || response.items || [])], { type: 'text/csv;charset=utf-8' })
+      download(blob, `audit-${new Date().toISOString().replaceAll(/[:.]/g, '-')}.csv`)
+      ElMessage.success('CSV 已导出')
+    } catch {
+      exportError.value = `CSV 导出失败：${errorText(error)}`
+    }
   } finally {
     exporting.value = false
   }

@@ -48,9 +48,7 @@ test('live login and cross-cluster namespace overview', async ({ page }) => {
 test('live dashboard renders Prometheus panels and dimensions', async ({ page }) => {
   test.setTimeout(180_000)
   await login(page)
-  await page.goto(
-    '/public/#/control/dashboard?tenant=digital-retail&project=online-business&cluster=pivot-cluster&namespace=online-shop',
-  )
+  await page.goto('/public/#/control/dashboard?tenant=digital-retail&project=online-business&cluster=pivot-cluster&namespace=online-shop')
   await expect(page.getByText('核心指标', { exact: true })).toBeVisible({ timeout: 90_000 })
   await expect(page.getByText('实例在线', { exact: true }).first()).toBeVisible()
   await expect(page.getByText('Go 协程趋势', { exact: true })).toBeVisible()
@@ -77,8 +75,45 @@ test('live global alert config saves and removes its secret', async ({ page }) =
   await expect(page.getByText(/保存成功|已保存|创建成功/).first()).toBeVisible({ timeout: 60_000 })
   await expect(remove).toBeEnabled({ timeout: 60_000 })
   await remove.click()
-  await page.getByRole('button', { name: /确认|删除/ }).last().click()
+  await page
+    .getByRole('button', { name: /确认|删除/ })
+    .last()
+    .click()
   await expect(page.getByText(/删除成功|已删除/).first()).toBeVisible({ timeout: 60_000 })
+})
+
+test('live audit list sorts and exports', async ({ page }) => {
+  test.setTimeout(180_000)
+  await login(page)
+  await page.request.post('/api/v1/audit/cube', {
+    data: {
+      EventTime: Math.floor(Date.now() / 1000),
+      EventVersion: '1.0',
+      EventName: 'live-audit-test',
+      Description: 'live audit seed',
+      SourceIpAddress: '127.0.0.1',
+      UserAgent: 'playwright',
+      RequestId: 'live-audit-seed',
+      RequestMethod: 'GET',
+      ResponseStatus: 200,
+      EventType: 'normal',
+      Url: '/api/v1/cube',
+      UserIdentity: { AccountId: 'admin' },
+      ApiAction: 'get',
+      ApiVersion: 'v1',
+      ResourceReports: [{ ResourceType: 'pods', ResourceId: 'live', ResourceName: 'live-audit' }],
+    },
+  })
+  await page.waitForTimeout(2000)
+  await page.goto('/public/#/platform/audit')
+  await expect(page.getByRole('heading', { name: '操作审计', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByText(/共 \d+ 条记录/)).toBeVisible({ timeout: 60_000 })
+  await expect(page.getByText('live-audit-test', { exact: true }).first()).toBeVisible({ timeout: 60_000 })
+  await page.getByText('时间', { exact: true }).first().click()
+  await expect(page.getByText(/时间按(升序|倒序)排列/)).toBeVisible({ timeout: 30_000 })
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: '导出 CSV', exact: true }).click()
+  await download
 })
 
 test('live deployment list, detail and YAML editor', async ({ page }) => {
@@ -154,7 +189,6 @@ test('live platform administration pages load real data', async ({ page }) => {
     await page.goto(path)
     await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible({ timeout: 90_000 })
   }
-  await expect(page.getByText('操作审计', { exact: true })).toHaveCount(0)
   await page.goto('/public/#/platform/AlertmanagerConfig')
   await expect(page.getByRole('heading', { name: '全局告警配置', exact: true })).toBeVisible({ timeout: 90_000 })
   await page.goto('/public/#/platform/cluster/pivot-cluster/info')
