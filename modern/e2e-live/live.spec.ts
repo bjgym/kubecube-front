@@ -157,10 +157,26 @@ test('live logconfig wizard creates a structured config', async ({ page }) => {
 test('live log stream pauses and resumes automatic refresh', async ({ page }) => {
   test.setTimeout(180_000)
   await login(page)
+  await page.request.post('/api/v1/logseer/extends/elasticsearch/_seed', {
+    data: {
+      docs: [
+        {
+          timestamp: Date.now(),
+          cluster_name: 'pivot-cluster',
+          namespace: 'default',
+          pod_name: 'shop-web-stream',
+          container_name: 'shop-web',
+          logconfig: 'shop-stdout-default',
+          level: 'error',
+          message: 'stream timeout live',
+        },
+      ],
+    },
+  })
   await page.goto('/public/#/control/lens/stream?cluster=pivot-cluster&namespace=default')
   await expect(page.getByRole('heading', { name: '实时日志流', exact: true })).toBeVisible({ timeout: 90_000 })
   await expect(page.getByText('自动刷新已开启', { exact: true })).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('.log-table').getByText('upstream request timeout', { exact: false }).first()).toBeVisible({
+  await expect(page.locator('.log-table').getByText('stream timeout live', { exact: false }).first()).toBeVisible({
     timeout: 60_000,
   })
   await page.locator('.el-switch').first().click()
