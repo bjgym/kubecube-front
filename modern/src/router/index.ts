@@ -4,7 +4,6 @@ import { useAuthStore } from '@/stores/auth'
 import { useFeatureStore } from '@/stores/feature'
 import { createUnauthorizedGate } from '@/utils/unauthorized'
 import { useScopeStore } from '@/stores/scope'
-import { hasAnyRole } from '@/config/access'
 import { canAccessPath } from '@/config/policy'
 import { getResourceConfig } from '@/config/resources'
 import { splitInternalLocation } from '@/utils/last-location'
@@ -43,7 +42,7 @@ const routes: RouteRecordRaw[] = [
             path: 'dashboard',
             name: 'control.dashboard',
             component: () => import('@/views/control/DashboardView.vue'),
-            meta: { title: '资源监控', feature: 'kubecube-monitoring' },
+            meta: { title: '资源监控' },
           },
           {
             path: 'bootstrap',
@@ -55,7 +54,7 @@ const routes: RouteRecordRaw[] = [
             path: 'lens/:type',
             name: 'control.lens',
             component: () => import('@/views/control/LogSearchView.vue'),
-            meta: { title: '日志查询', feature: 'logseer' },
+            meta: { title: '日志查询' },
           },
           { path: 'crd', redirect: '/control/crd/Cluster' },
           {
@@ -112,128 +111,128 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'platform',
-        meta: { requiresManager: true },
+        meta: {},
         children: [
           {
             path: '',
             name: 'platform.home',
             component: () => import('@/views/platform/PlatformHomeView.vue'),
-            meta: { title: '运维管理', requiresManager: true },
+            meta: { title: '运维管理' },
           },
           { path: 'user', redirect: '/platform/user/list' },
           {
             path: 'user/list',
             name: 'platform.user',
             component: () => import('@/views/platform/UserListView.vue'),
-            meta: { title: '用户管理', requiresManager: true, requiresRoles: ['platformAdmin'] },
+            meta: { title: '用户管理' },
           },
           { path: 'role', redirect: '/platform/role/platform' },
           {
             path: 'role/:identity',
             name: 'platform.role.manage',
             component: () => import('@/views/platform/RoleListView.vue'),
-            meta: { title: '角色管理', requiresManager: true },
+            meta: { title: '角色管理' },
           },
           { path: 'tenant', redirect: '/platform/tenant/tenant' },
           {
             path: 'tenant/:tab(tenant|project|member)',
             name: 'platform.tenant',
             component: () => import('@/views/platform/TenantManagementView.vue'),
-            meta: { title: '租户与项目', requiresManager: true },
+            meta: { title: '租户与项目' },
           },
           {
             path: 'bootstrap',
             name: 'platform.bootstrap',
             component: () => import('@/views/platform/QuickStartView.vue'),
-            meta: { title: '快速向导', requiresManager: true },
+            meta: { title: '快速向导' },
           },
           {
             path: 'quota',
             name: 'platform.quota',
             component: () => import('@/views/platform/QuotaView.vue'),
-            meta: { title: '租户配额', requiresManager: true, requiresRoles: ['platformAdmin'] },
+            meta: { title: '租户配额' },
           },
           {
             path: 'nsquota',
             name: 'platform.nsquota',
             component: () => import('@/views/platform/NamespaceManageView.vue'),
-            meta: { title: '空间管理', requiresManager: true },
+            meta: { title: '空间管理' },
           },
           {
             path: 'audit',
             name: 'platform.audit',
             component: () => import('@/views/platform/AuditView.vue'),
-            meta: { title: '操作审计', requiresManager: true, requiresRoles: ['platformAdmin'], feature: 'audit' },
+            meta: { title: '操作审计' },
           },
           { path: 'cluster', redirect: '/platform/cluster/list' },
           {
             path: 'cluster/list',
             name: 'platform.cluster.list',
             component: () => import('@/views/platform/ClusterListView.vue'),
-            meta: { title: '集群管理', requiresManager: true },
+            meta: { title: '集群管理' },
           },
           { path: 'cluster/:name', redirect: (to) => `/platform/cluster/${to.params.name}/info` },
           {
             path: 'cluster/:name/:tab(info|node|storageclass|persistentvolumes|network|monitor)',
             name: 'platform.cluster.detail',
             component: () => import('@/views/platform/ClusterDetailView.vue'),
-            meta: { title: '集群详情', requiresManager: true },
+            meta: { title: '集群详情' },
           },
           {
             path: 'cluster/:name/network/create',
             name: 'platform.cluster.detail.network.create',
             component: () => import('@/views/control/ResourceEditorView.vue'),
-            meta: { title: '创建网络策略', requiresManager: true },
+            meta: { title: '创建网络策略' },
           },
           {
             path: 'cluster/:name/network/edit/:namespace/:instance',
             name: 'platform.cluster.detail.network.edit',
             component: () => import('@/views/control/ResourceEditorView.vue'),
-            meta: { title: '编辑网络策略', requiresManager: true },
+            meta: { title: '编辑网络策略' },
           },
           {
             path: 'cluster/:name/:nodename/:tab(info|pod|monitor|event)',
             name: 'platform.cluster.nodedetail',
             component: () => import('@/views/platform/NodeDetailView.vue'),
-            meta: { title: '节点详情', requiresManager: true },
+            meta: { title: '节点详情' },
           },
           { path: 'monitor', redirect: '/platform/monitor/list' },
           {
             path: 'monitor/list',
             name: 'platform.monitor.list',
             component: () => import('@/views/platform/ComponentMonitorView.vue'),
-            meta: { title: '组件监控', requiresManager: true, feature: 'kubecube-monitoring' },
+            meta: { title: '组件监控' },
           },
           {
             path: 'monitor/:dashboard',
             name: 'platform.monitor.dashboard',
             component: () => import('@/views/control/DashboardView.vue'),
-            meta: { title: '组件监控', requiresManager: true, feature: 'kubecube-monitoring' },
+            meta: { title: '组件监控' },
           },
           { path: 'PrometheusRule', redirect: '/platform/PrometheusRule/list' },
           {
             path: 'PrometheusRule/list',
             name: 'platform.PrometheusRule.list',
             component: () => import('@/views/platform/GlobalAlertRulesView.vue'),
-            meta: { title: '全局告警规则', requiresManager: true, requiresRoles: ['platformAdmin'], feature: 'kubecube-monitoring' },
+            meta: { title: '全局告警规则' },
           },
           {
             path: 'PrometheusRule/:cluster/create',
             name: 'platform.PrometheusRule.create',
             component: () => import('@/views/platform/AlertRuleEditorView.vue'),
-            meta: { title: '创建告警规则', requiresManager: true, requiresRoles: ['platformAdmin'], feature: 'kubecube-monitoring' },
+            meta: { title: '创建告警规则' },
           },
           {
             path: 'PrometheusRule/:cluster/:instance/edit',
             name: 'platform.PrometheusRule.edit',
             component: () => import('@/views/platform/AlertRuleEditorView.vue'),
-            meta: { title: '编辑告警规则', requiresManager: true, requiresRoles: ['platformAdmin'], feature: 'kubecube-monitoring' },
+            meta: { title: '编辑告警规则' },
           },
           {
             path: 'AlertmanagerConfig',
             name: 'platform.AlertmanagerConfig',
             component: () => import('@/views/platform/GlobalAlertConfigView.vue'),
-            meta: { title: '全局告警配置', requiresManager: true, requiresRoles: ['platformAdmin'], feature: 'kubecube-monitoring' },
+            meta: { title: '全局告警配置' },
           },
         ],
       },
@@ -269,9 +268,6 @@ router.beforeEach(async (to) => {
   }
   const features = { monitoring: featureStore.monitoring, logseer: featureStore.logseer, audit: featureStore.audit }
   if (!canAccessPath(to.path, auth.identities, features, featureStore.auditEnabled)) return { name: 'noauth' }
-  if (to.meta.requiresManager && !auth.canManage) return { name: 'noauth' }
-  if (to.meta.requiresRoles && !hasAnyRole(auth.identities, to.meta.requiresRoles)) return { name: 'noauth' }
-  if (to.meta.feature && !featureStore.features[to.meta.feature]) return { name: 'noauth' }
   const workload = typeof to.params.workload === 'string' ? to.params.workload : ''
   if (workload && !getResourceConfig(workload)) return { name: 'not-found' }
   return true

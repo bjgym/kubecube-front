@@ -4,14 +4,12 @@ export interface NavItem {
   label: string
   path?: string
   icon: string
-  feature?: 'monitoring' | 'logseer' | 'audit'
   action?: 'yaml' | 'shell'
-  roles?: ManagerRole[]
-  children?: Array<{ label: string; path: string; roles?: ManagerRole[] }>
+  children?: Array<{ label: string; path: string }>
 }
 
 export const controlNavigation: NavItem[] = [
-  { label: '资源监控', path: '/control/dashboard', icon: 'DataAnalysis', feature: 'monitoring' },
+  { label: '资源监控', path: '/control/dashboard', icon: 'DataAnalysis' },
   {
     label: '工作负载',
     icon: 'Box',
@@ -47,7 +45,6 @@ export const controlNavigation: NavItem[] = [
   {
     label: '日志中心',
     icon: 'Tickets',
-    feature: 'logseer',
     children: [
       { label: '日志任务', path: '/control/logconfigs/list' },
       { label: '日志查询', path: '/control/lens/normal' },
@@ -56,7 +53,6 @@ export const controlNavigation: NavItem[] = [
   {
     label: '告警管理',
     icon: 'Bell',
-    feature: 'monitoring',
     children: [
       { label: '告警规则', path: '/control/PrometheusRule/list' },
       { label: '告警策略组', path: '/control/AlertmanagerConfig/list' },
@@ -70,7 +66,7 @@ export const platformNavigation: NavItem[] = [
     label: '组织管理',
     icon: 'User',
     children: [
-      { label: '用户管理', path: '/platform/user/list', roles: ['platformAdmin'] },
+      { label: '用户管理', path: '/platform/user/list' },
       { label: '角色管理', path: '/platform/role/platform' },
       { label: '租户与项目', path: '/platform/tenant/tenant' },
       { label: '成员管理', path: '/platform/tenant/member' },
@@ -83,19 +79,21 @@ export const platformNavigation: NavItem[] = [
     children: [
       { label: '集群管理', path: '/platform/cluster/list' },
       { label: '空间管理', path: '/platform/nsquota' },
-      { label: '租户配额', path: '/platform/quota', roles: ['platformAdmin'] },
+      { label: '租户配额', path: '/platform/quota' },
     ],
   },
-  { label: '操作审计', path: '/platform/audit', icon: 'DocumentChecked', feature: 'audit', roles: ['platformAdmin'] },
-  { label: '组件监控', path: '/platform/monitor/list', icon: 'Odometer', feature: 'monitoring' },
+  { label: '操作审计', path: '/platform/audit', icon: 'DocumentChecked' },
+  { label: '组件监控', path: '/platform/monitor/list', icon: 'Odometer' },
   {
     label: '告警管理',
     icon: 'Bell',
-    feature: 'monitoring',
-    roles: ['platformAdmin'],
     children: [
       { label: '全局告警规则', path: '/platform/PrometheusRule/list' },
       { label: '全局告警配置', path: '/platform/AlertmanagerConfig' },
     ],
   },
 ]
+
+// Kept for consumers that need the role vocabulary beside the navigation; the
+// page policy table remains the only authorization source.
+export type NavigationRole = ManagerRole

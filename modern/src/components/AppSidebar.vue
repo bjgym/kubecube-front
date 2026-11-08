@@ -94,9 +94,6 @@ const activePath = computed(() => route.path)
 const featureAccess = computed(() => ({ monitoring: features.monitoring, logseer: features.logseer, audit: features.audit }))
 function canSee(item: NavItem): boolean {
   if (item.path && !canAccessPath(item.path, auth.identities, featureAccess.value, features.auditEnabled)) return false
-  if (item.feature === 'monitoring' && !features.monitoring) return false
-  if (item.feature === 'logseer' && !features.logseer) return false
-  if (item.feature === 'audit' && !features.auditAvailable) return false
   return true
 }
 const visibleItems = computed(() =>
