@@ -1,0 +1,60 @@
+name: verify-frontend
+
+on:
+  pull_request:
+    paths:
+      - 'modern/**'
+      - 'Dockerfile'
+      - 'Dockerfile.multiarch'
+      - 'Makefile'
+      - '.github/workflows/verify-frontend.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'modern/**'
+      - '.github/workflows/verify-frontend.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verify-frontend-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: modern
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: modern/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+
+      - run: npm run format:check
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # The committed visual baselines are Windows snapshots. CI runs the
+      # behavioural mock suite; visual baselines stay a local, reviewed check.
+      - name: Mock E2E (behavioural, no OS-specific visual baselines)
+        run: npx playwright test --grep-invert "visual regression"
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: modern/playwright-report
+          retention-days: 7

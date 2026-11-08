@@ -22,13 +22,13 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onMounted, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
 import ScopeBar from '@/components/ScopeBar.vue'
-import YamlComposer from '@/components/YamlComposer.vue'
-import CloudShellDrawer from '@/components/CloudShellDrawer.vue'
+const YamlComposer = defineAsyncComponent(() => import('@/components/YamlComposer.vue'))
+const CloudShellDrawer = defineAsyncComponent(() => import('@/components/CloudShellDrawer.vue'))
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 import { useViewport } from '@/composables/useViewport'

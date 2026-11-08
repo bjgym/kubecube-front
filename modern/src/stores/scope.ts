@@ -126,8 +126,9 @@ export const useScopeStore = defineStore('scope', () => {
     const current = ++generation
     loading.value = true
     try {
-      await loadClusters(routeQuery.cluster)
-      await loadTenants(routeQuery.tenant)
+      // Cluster discovery and tenant discovery are independent; project and
+      // namespace discovery depend on them.
+      await Promise.all([loadClusters(routeQuery.cluster), loadTenants(routeQuery.tenant)])
       await loadProjects(routeQuery.project)
       await loadNamespaces(routeQuery.namespace)
       if (!namespaces.value.length && !routeQuery.cluster) {

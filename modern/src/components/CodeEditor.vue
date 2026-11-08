@@ -2,7 +2,6 @@
 <script setup lang="ts">
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import type * as Monaco from 'monaco-editor'
-import EditorWorker from 'monaco-editor/editor/editor.worker.js?worker'
 
 const props = withDefaults(
   defineProps<{ modelValue: string; readOnly?: boolean; height?: string; language?: 'yaml' | 'json' | 'plaintext' }>(),
@@ -18,7 +17,9 @@ onMounted(async () => {
   if (!host.value) return
   const element = host.value
   monaco = await import('monaco-editor')
+  const workerModule = await import('monaco-editor/editor/editor.worker.js?worker')
   if (destroyed || !host.value || host.value !== element) return
+  const EditorWorker = workerModule.default
   self.MonacoEnvironment = { getWorker: () => new EditorWorker() }
   editor = monaco.editor.create(element, {
     value: props.modelValue,

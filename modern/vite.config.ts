@@ -27,7 +27,6 @@ export default defineConfig(({ mode }) => {
       rollupOptions: {
         output: {
           manualChunks(id) {
-            if (id.includes('node_modules/monaco-editor')) return 'monaco'
             if (id.includes('node_modules/echarts')) return 'charts'
             if (id.includes('node_modules/element-plus') || id.includes('node_modules/@element-plus')) return 'element'
             if (id.includes('node_modules/vue') || id.includes('node_modules/pinia')) return 'vue'
