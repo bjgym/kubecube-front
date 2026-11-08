@@ -87,7 +87,10 @@ docker build -t kubecube/frontend:dev .
 docker build -t kubecube/frontend:dev --build-arg VITE_BRAND_NAME="My Cloud" .
 ```
 
-Deploy the resulting image as the frontend Deployment in the `kubecube-system` namespace.
+The image is a static bundle behind stock nginx on port 80. The Helm chart is the only
+supported deployment path: it supplies the nginx reverse proxy, `/healthz`, cache
+policy and the NodePort Service. See [modern/deploy/README.md](modern/deploy/README.md)
+for the build, install and verification contract.
 
 ## License
 
