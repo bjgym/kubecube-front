@@ -47,12 +47,13 @@
         v-loading="loading && !items.length"
         :data="items"
         row-key="metadata.uid"
+        scrollbar-always-on
         @sort-change="onSort"
         @selection-change="selected = $event"
       >
         <el-table-column type="selection" width="44" :selectable="(row: KubeResource) => writeAllowed && !isProtectedResource(row)" />
         <el-table-column
-          v-for="column in config.columns"
+          v-for="column in visibleColumns"
           :key="column.prop"
           :prop="column.prop"
           :label="column.label"
@@ -195,6 +196,7 @@ import { resourceApi } from '@/api/resource'
 import { monitorApi } from '@/api/observability'
 import { getResourceConfig, valueForColumn } from '@/config/resources'
 import { useResourceList } from '@/composables/useResourceList'
+import { useViewport } from '@/composables/useViewport'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 import { useFeatureStore } from '@/stores/feature'
@@ -214,6 +216,10 @@ const context = computed(() => ({
     : scope.namespace,
 }))
 const { items, total, loading, error, search, pagination, load, onSearch, onPage, onPageSize, onSort } = useResourceList(config, context)
+const { isWide } = useViewport()
+// The image column is the widest one and the least useful when the table is
+// already scrolling; keep name, status, age and actions visible at 1280.
+const visibleColumns = computed(() => config.value.columns.filter((column) => column.prop !== 'images' || isWide.value))
 const podMetrics = ref<Record<string, { cpu: string; memory: string }>>({})
 function metricValues(payload: unknown): Record<string, number> {
   const result = (payload as { data?: { result?: Array<{ metric?: { pod?: string }; value?: [number, string] }> } })?.data?.result || []

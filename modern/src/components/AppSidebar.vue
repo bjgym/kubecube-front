@@ -4,7 +4,7 @@
     <div class="app-sidebar__caption">{{ isPlatform ? 'PLATFORM' : 'WORKSPACE' }}</div>
     <el-scrollbar class="app-sidebar__scroll">
       <nav :aria-label="isPlatform ? '运维管理导航' : '资源控制台导航'">
-        <el-menu :default-active="activePath" :collapse="collapsed" :collapse-transition="false" @select="onSelect">
+        <el-menu :default-active="activePath" :collapse="collapsed" :collapse-transition="false" unique-opened @select="onSelect">
           <template v-for="item in visibleItems" :key="item.label">
             <el-sub-menu v-if="item.children" :index="item.label">
               <template #title
@@ -22,7 +22,7 @@
         </el-menu>
       </nav>
     </el-scrollbar>
-    <button class="app-sidebar__workspace" type="button" @click="router.push('/namespace')">
+    <button v-if="!isPlatform" class="app-sidebar__workspace" type="button" @click="router.push('/namespace')">
       <span class="workspace__icon"
         ><el-icon><Grid /></el-icon
       ></span>

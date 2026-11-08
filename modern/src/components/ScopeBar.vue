@@ -50,39 +50,102 @@
             :value="item.metadata.name" /></el-select
       ></label>
     </div>
+    <button class="scope-mobile-trigger" type="button" aria-label="切换工作空间" @click="mobileOpen = true">
+      <el-icon><Collection /></el-icon>
+      <span>{{ mobileSummary }}</span>
+      <el-icon><ArrowDown /></el-icon>
+    </button>
     <el-tooltip content="刷新当前空间资源" placement="top"
       ><button class="refresh-button" type="button" aria-label="刷新空间" :disabled="scope.loading" @click="refresh">
         <el-icon :class="{ spinning: scope.loading }"><Refresh /></el-icon></button
     ></el-tooltip>
   </section>
+
+  <el-drawer v-model="mobileOpen" title="切换工作空间" size="86%" direction="btt">
+    <div class="scope-drawer">
+      <label class="scope-field"
+        ><span>租户</span
+        ><el-select :model-value="scope.tenant" :loading="scope.loading" placeholder="选择租户" @change="changeTenant"
+          ><el-option
+            v-for="item in scope.tenants"
+            :key="item.metadata.name"
+            :label="displayName(item)"
+            :value="item.metadata.name" /></el-select
+      ></label>
+      <label class="scope-field"
+        ><span>项目</span
+        ><el-select :model-value="scope.project" :disabled="!scope.tenant" placeholder="选择项目" @change="changeProject"
+          ><el-option
+            v-for="item in scope.projects"
+            :key="item.metadata.name"
+            :label="displayName(item)"
+            :value="item.metadata.name" /></el-select
+      ></label>
+      <label class="scope-field"
+        ><span>集群</span
+        ><el-select :model-value="scope.cluster" placeholder="选择集群" @change="changeCluster"
+          ><el-option
+            v-for="item in scope.activeClusters"
+            :key="item.clusterName"
+            :label="item.clusterDisplayName || item.clusterName"
+            :value="item.clusterName"
+            ><div class="cluster-option">
+              <span>{{ item.clusterDisplayName || item.clusterName }}</span
+              ><small>{{ item.isMemberCluster ? '业务集群' : '管控集群' }}</small>
+            </div></el-option
+          ></el-select
+        ></label
+      >
+      <label class="scope-field"
+        ><span>空间</span
+        ><el-select :model-value="scope.namespace" :disabled="!scope.cluster" placeholder="选择空间" @change="changeNamespace"
+          ><el-option
+            v-for="item in scope.namespaces"
+            :key="item.metadata.name"
+            :label="item.metadata.name"
+            :value="item.metadata.name" /></el-select
+      ></label>
+    </div>
+  </el-drawer>
 </template>
 <script setup lang="ts">
+import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { Collection, Refresh } from '@element-plus/icons-vue'
+import { ArrowDown, Collection, Refresh } from '@element-plus/icons-vue'
 import { useScopeStore } from '@/stores/scope'
 import type { KubeResource } from '@/types/api'
 const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
+const mobileOpen = ref(false)
 const displayName = (item: KubeResource) => String((item.spec as Record<string, unknown> | undefined)?.displayName || item.metadata.name)
+const mobileSummary = computed(() => {
+  const cluster = scope.currentCluster?.clusterDisplayName || scope.cluster || '选择集群'
+  const namespace = scope.namespace || '选择空间'
+  return `${cluster} / ${namespace}`
+})
 async function syncQuery() {
   await router.replace({ path: route.path, query: { ...route.query, ...scope.query } })
 }
 async function changeTenant(value: string) {
   await scope.selectTenant(value)
+  mobileOpen.value = false
   await router.push({ path: '/namespace', query: scope.query })
 }
 async function changeProject(value: string) {
   await scope.selectProject(value)
+  mobileOpen.value = false
   await router.push({ path: '/namespace', query: scope.query })
 }
 async function changeCluster(value: string) {
   await scope.selectCluster(value)
+  mobileOpen.value = false
   await leaveStaleResource()
   await syncQuery()
 }
 async function changeNamespace(value: string) {
   await scope.selectNamespace(value)
+  mobileOpen.value = false
   await leaveStaleResource()
   await syncQuery()
 }
@@ -98,8 +161,8 @@ async function refresh() {
 <style scoped>
 .scope-bar {
   display: flex;
-  min-height: 62px;
-  padding: 10px 24px;
+  min-height: var(--scope-height);
+  padding: 8px 24px;
   align-items: center;
   gap: 18px;
   flex-shrink: 0;
@@ -121,6 +184,44 @@ async function refresh() {
   align-items: center;
   gap: 10px;
   flex: 1;
+}
+.scope-mobile-trigger {
+  display: none;
+  min-width: 0;
+  padding: 8px 10px;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  color: var(--text-regular);
+  text-align: left;
+  background: var(--surface-subtle);
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+}
+.scope-mobile-trigger > span {
+  overflow: hidden;
+  flex: 1;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.scope-drawer {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 4px 0 24px;
+}
+.scope-field {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.scope-field > span {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+.scope-field :deep(.el-select) {
+  width: 100%;
 }
 .scope-select {
   display: flex;
@@ -192,14 +293,14 @@ async function refresh() {
 }
 @media (max-width: 768px) {
   .scope-bar {
-    padding: 10px 14px;
-    overflow-x: auto;
+    padding: 8px 14px;
+    gap: 8px;
   }
   .scope-bar__selectors {
-    min-width: 560px;
+    display: none;
   }
-  .scope-select :deep(.el-select) {
-    max-width: none;
+  .scope-mobile-trigger {
+    display: flex;
   }
 }
 </style>

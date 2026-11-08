@@ -456,6 +456,7 @@ import { monitorApi } from '@/api/observability'
 import { resourceApi, type ResourceDefinition } from '@/api/resource'
 import type { ClusterInfo, KubeResource } from '@/types/api'
 import { asText, formatBytes, formatDate, formatNumber, getByPath } from '@/utils/format'
+import { useViewport } from '@/composables/useViewport'
 import { fromYAML, toYAML } from '@/utils/yaml'
 
 type TabName = 'info' | 'node' | 'storageclass' | 'persistentvolumes' | 'network' | 'monitor'
@@ -541,7 +542,7 @@ const drainCompleted = ref(0)
 const drainCurrent = ref('')
 const drainError = ref('')
 const drainFailures = ref<DrainFailure[]>([])
-const viewportWidth = ref(window.innerWidth)
+const { width: viewportWidth } = useViewport()
 let summaryGeneration = 0
 let tabGeneration = 0
 const clusterName = computed(() => String(route.params.name || ''))
@@ -1054,9 +1055,6 @@ function refreshCurrent() {
   void loadSummary()
   void loadTab()
 }
-function onResize() {
-  viewportWidth.value = window.innerWidth
-}
 watch(
   clusterName,
   (value, previous) => {
@@ -1085,11 +1083,9 @@ watch(
   },
   { immediate: true },
 )
-window.addEventListener('resize', onResize)
 onBeforeUnmount(() => {
   summaryGeneration++
   tabGeneration++
-  window.removeEventListener('resize', onResize)
 })
 </script>
 

@@ -511,7 +511,7 @@ onBeforeUnmount(() => {
 }
 .welcome-panel {
   position: relative;
-  padding: 38px max(28px, calc((100vw - var(--content-max)) / 2));
+  padding: var(--welcome-padding) max(28px, calc((100vw - var(--content-max)) / 2));
   overflow: hidden;
   color: #fff;
   background:
@@ -551,8 +551,8 @@ onBeforeUnmount(() => {
 .welcome-copy h1 {
   margin-top: 8px;
   color: #fff;
-  font-size: 30px;
-  line-height: 40px;
+  font-size: var(--welcome-title-size);
+  line-height: 1.35;
 }
 .welcome-copy p {
   max-width: 680px;

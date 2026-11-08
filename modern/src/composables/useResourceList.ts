@@ -17,6 +17,49 @@ export function useResourceList(definition: Ref<ResourceDefinition>, context: Re
   })
   let requestId = 0
 
+  const storageKey = computed(
+    () => `kubecube-list:${definition.value.plural}:${context.value.cluster || ''}:${context.value.namespace || ''}`,
+  )
+  interface SavedListState {
+    search: string
+    pageNum: number
+    pageSize: number
+    sortName?: string
+    sortOrder?: 'asc' | 'desc'
+    sortFunc?: 'time' | 'string'
+  }
+  function restoreState() {
+    try {
+      const saved = sessionStorage.getItem(storageKey.value)
+      if (!saved) return
+      const state = JSON.parse(saved) as Partial<SavedListState>
+      if (typeof state.search === 'string') search.value = state.search
+      if (Number.isFinite(state.pageNum) && Number(state.pageNum) > 0) pagination.pageNum = Number(state.pageNum)
+      if (Number.isFinite(state.pageSize) && Number(state.pageSize) > 0) pagination.pageSize = Number(state.pageSize)
+      if (state.sortName !== undefined) pagination.sortName = state.sortName
+      if (state.sortOrder === 'asc' || state.sortOrder === 'desc') pagination.sortOrder = state.sortOrder
+      if (state.sortFunc === 'time' || state.sortFunc === 'string') pagination.sortFunc = state.sortFunc
+    } catch {
+      /* ignore unavailable or invalid state */
+    }
+  }
+  function saveState() {
+    try {
+      const state: SavedListState = {
+        search: search.value,
+        pageNum: pagination.pageNum,
+        pageSize: pagination.pageSize,
+        sortName: pagination.sortName,
+        sortOrder: pagination.sortOrder,
+        sortFunc: pagination.sortFunc,
+      }
+      sessionStorage.setItem(storageKey.value, JSON.stringify(state))
+    } catch {
+      /* ignore unavailable storage */
+    }
+  }
+  restoreState()
+
   const params = computed<Partial<PaginationQuery>>(() => ({
     ...pagination,
     selector: search.value ? `metadata.name~${search.value}` : undefined,
@@ -51,21 +94,25 @@ export function useResourceList(definition: Ref<ResourceDefinition>, context: Re
   function onSearch(value: string) {
     search.value = value
     pagination.pageNum = 1
+    saveState()
     load()
   }
   function onPage(page: number) {
     pagination.pageNum = page
+    saveState()
     load()
   }
   function onPageSize(size: number) {
     pagination.pageSize = size
     pagination.pageNum = 1
+    saveState()
     load()
   }
   function onSort({ prop, order }: { prop: string; order: 'ascending' | 'descending' | null }) {
     pagination.sortName = order ? prop : undefined
     pagination.sortOrder = order === 'ascending' ? 'asc' : 'desc'
     pagination.sortFunc = prop.includes('creationTimestamp') ? 'time' : 'string'
+    saveState()
     load()
   }
 

@@ -24,6 +24,15 @@
   --danger: #f04438;
   --info: #2e90fa;
   --header-height: 68px;
+  --scope-height: 62px;
+  --content-padding: 28px;
+  --page-gap: 20px;
+  --surface-padding: 24px;
+  --page-header-min-height: 66px;
+  --table-header-height: 48px;
+  --table-row-padding: 13px;
+  --welcome-padding: 38px;
+  --welcome-title-size: 30px;
   --sidebar-width: 248px;
   --sidebar-collapsed-width: 76px;
   --content-max: 1680px;
@@ -55,4 +64,37 @@
   --el-bg-color-page: var(--surface-page);
   --el-border-radius-base: 8px;
   --el-font-family: Inter, 'SF Pro Text', 'PingFang SC', 'Microsoft YaHei', system-ui, sans-serif;
+}
+
+/*
+ * Density is a first-class setting: the console defaults to the compact layout
+ * used by operators, while the comfortable layout is one click away for
+ * first-time or presentation use. The attribute is set before the app mounts so
+ * there is no flash of the other layout.
+ */
+:root[data-density='compact'] {
+  --header-height: 60px;
+  --scope-height: 52px;
+  --content-padding: 20px;
+  --page-gap: 16px;
+  --surface-padding: 18px;
+  --page-header-min-height: 56px;
+  --table-header-height: 40px;
+  --table-row-padding: 8px;
+  --welcome-padding: 24px;
+  --welcome-title-size: 25px;
+}
+
+@media (max-width: 768px) {
+  :root {
+    --content-padding: 16px;
+    --page-gap: 14px;
+    --surface-padding: 16px;
+  }
+  :root[data-density='compact'] {
+    --content-padding: 16px;
+    --page-gap: 14px;
+    --surface-padding: 16px;
+    --header-height: 56px;
+  }
 }

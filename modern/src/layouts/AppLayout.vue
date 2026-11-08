@@ -22,7 +22,7 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import AppHeader from '@/components/AppHeader.vue'
 import AppSidebar from '@/components/AppSidebar.vue'
@@ -31,18 +31,15 @@ import YamlComposer from '@/components/YamlComposer.vue'
 import CloudShellDrawer from '@/components/CloudShellDrawer.vue'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
+import { useViewport } from '@/composables/useViewport'
 import { pickScopeQuery } from '@/router/scope-query'
 const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
 const ui = useUiStore()
-const width = ref(window.innerWidth)
-const isMobile = computed(() => width.value < 1024)
+const { isTablet: isMobile } = useViewport()
 const showSidebar = computed(() => route.name !== 'namespace')
 const showScope = computed(() => route.path.startsWith('/control') || route.name === 'namespace')
-const resize = () => {
-  width.value = window.innerWidth
-}
 async function syncScopeFromRoute() {
   if (!showScope.value) return
   await scope.applyRouteScope(pickScopeQuery(route.query) as never)
@@ -54,11 +51,9 @@ async function syncScopeFromRoute() {
   }
 }
 onMounted(async () => {
-  window.addEventListener('resize', resize)
   await router.isReady()
   await syncScopeFromRoute()
 })
-onBeforeUnmount(() => window.removeEventListener('resize', resize))
 watch(
   () => route.fullPath,
   () => {
@@ -84,7 +79,7 @@ watch(
 }
 .app-content {
   min-width: 0;
-  padding: 28px;
+  padding: var(--content-padding);
   overflow: auto;
   flex: 1;
   scroll-behavior: smooth;

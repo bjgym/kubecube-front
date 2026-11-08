@@ -532,6 +532,7 @@ import YamlEditorDialog from '@/components/YamlEditorDialog.vue'
 import DashboardView from './DashboardView.vue'
 import { resourceApi, type EndpointSubset, type ExternalAccessPortUpdate, type ResourceDefinition } from '@/api/resource'
 import { getResourceConfig } from '@/config/resources'
+import { useViewport } from '@/composables/useViewport'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 import { formatDate } from '@/utils/format'
@@ -560,6 +561,7 @@ const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
 const ui = useUiStore()
+const { isMobile } = useViewport()
 const config = computed(() => getResourceConfig(String(route.params.workload))!)
 const instanceName = computed(() => String(route.params.instance))
 const activeTab = computed(() => String(route.params.tab || 'info') as (typeof config.value.tabs)[number])
@@ -682,7 +684,7 @@ const isProtectedResource = computed(() => {
     (metadata?.labels?.['system/defaultImagePullSecret'] === 'true' || metadata?.pureLabels?.['system/defaultImagePullSecret'] === 'true')
   )
 })
-const descriptionColumns = computed(() => (window.innerWidth < 768 ? 1 : 3))
+const descriptionColumns = computed(() => (isMobile.value ? 1 : 3))
 const resourceStatus = computed(() => {
   const status = resource.value?.status as Record<string, any> | undefined
   if (status?.phase) return String(status.phase)

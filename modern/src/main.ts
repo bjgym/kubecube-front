@@ -8,6 +8,14 @@ import App from './App.vue'
 import router from './router'
 import './styles/index.css'
 
+// Apply the saved density before the first render so the console does not flash
+// the other layout. The ui store owns later changes.
+try {
+  document.documentElement.dataset.density = localStorage.getItem('kubecube-density') === 'comfortable' ? 'comfortable' : 'compact'
+} catch {
+  document.documentElement.dataset.density = 'compact'
+}
+
 const app = createApp(App)
 
 app.use(createPinia())

@@ -7,7 +7,7 @@
 .page-stack {
   display: flex;
   flex-direction: column;
-  gap: 20px;
+  gap: var(--page-gap);
 }
 
 .surface {
@@ -18,7 +18,7 @@
 }
 
 .surface-padded {
-  padding: 24px;
+  padding: var(--surface-padding);
 }
 
 .toolbar {

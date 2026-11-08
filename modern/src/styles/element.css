@@ -44,7 +44,7 @@
 }
 
 .el-table th.el-table__cell {
-  height: 48px;
+  height: var(--table-header-height);
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 600;
@@ -52,7 +52,7 @@
 }
 
 .el-table .el-table__cell {
-  padding: 13px 0;
+  padding: var(--table-row-padding) 0;
 }
 
 .el-table .cell {

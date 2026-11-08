@@ -28,6 +28,9 @@
         </button>
         <template #dropdown
           ><el-dropdown-menu>
+            <el-dropdown-item command="density"
+              ><el-icon><Operation /></el-icon>{{ ui.density === 'compact' ? '切换为舒适布局' : '切换为紧凑布局' }}</el-dropdown-item
+            >
             <el-dropdown-item command="keys"
               ><el-icon><Key /></el-icon>密钥管理</el-dropdown-item
             >
@@ -43,7 +46,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Expand, Fold, Key, Menu, Switch, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowDown, Expand, Fold, Key, Menu, Operation, Switch, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
@@ -73,7 +76,8 @@ const toggle = () => {
 }
 const switchArea = () => router.push(isPlatform.value ? '/namespace' : platformLanding(auth.identities))
 function onCommand(command: string) {
-  if (command === 'keys') router.push('/metauser/openapi')
+  if (command === 'density') ui.toggleDensity()
+  else if (command === 'keys') router.push('/metauser/openapi')
   else {
     auth.logout()
     scope.reset()

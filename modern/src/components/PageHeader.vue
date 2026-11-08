@@ -26,7 +26,7 @@ withDefaults(defineProps<{ title: string; description?: string; breadcrumbs?: st
   align-items: flex-end;
   justify-content: space-between;
   gap: 24px;
-  min-height: 66px;
+  min-height: var(--page-header-min-height);
 }
 .page-header__main {
   min-width: 0;

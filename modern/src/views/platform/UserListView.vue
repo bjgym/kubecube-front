@@ -54,10 +54,10 @@
         <el-table-column label="用户名称" min-width="130">
           <template #default="{ row }">{{ userField(row, 'displayName') }}</template>
         </el-table-column>
-        <el-table-column label="登录类型" min-width="110">
+        <el-table-column v-if="isWide" label="登录类型" min-width="110">
           <template #default="{ row }">{{ loginTypeText(userField(row, 'loginType')) }}</template>
         </el-table-column>
-        <el-table-column label="联系电话" min-width="130">
+        <el-table-column v-if="isWide" label="联系电话" min-width="130">
           <template #default="{ row }">{{ userField(row, 'phone') }}</template>
         </el-table-column>
         <el-table-column label="状态" width="100">
@@ -65,26 +65,31 @@
             <StatusTag :status="userState(row)" :label="userStateLabel(row)" />
           </template>
         </el-table-column>
-        <el-table-column label="上次登录 IP" min-width="140">
+        <el-table-column v-if="isWide" label="上次登录 IP" min-width="140">
           <template #default="{ row }">{{ userField(row, 'lastLoginIP') }}</template>
         </el-table-column>
         <el-table-column label="上次登录时间" min-width="170">
           <template #default="{ row }">{{ formatDate(userField(row, 'lastLoginTime', '')) }}</template>
         </el-table-column>
-        <el-table-column label="操作" width="274" fixed="right">
+        <el-table-column label="操作" width="176" fixed="right">
           <template #default="{ row }">
             <div class="row-actions">
               <el-button link type="primary" @click="openEdit(row)">编辑信息</el-button>
-              <el-button link type="primary" @click="openPassword(row)">重置密码</el-button>
-              <el-button
-                link
-                :type="isEnabled(row) ? 'danger' : 'primary'"
-                :disabled="!hasKnownState(row) || actionLoading === userName(row)"
-                :loading="actionLoading === userName(row)"
-                @click="toggleStatus(row)"
-              >
-                {{ isEnabled(row) ? '禁用' : '启用' }}
-              </el-button>
+              <el-dropdown trigger="click" @command="(command: string) => onRowCommand(command, row)">
+                <el-button link class="more-button" aria-label="更多操作"
+                  ><el-icon><MoreFilled /></el-icon
+                ></el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item command="password"
+                      ><el-icon><Key /></el-icon>重置密码</el-dropdown-item
+                    >
+                    <el-dropdown-item command="status" divided :disabled="!hasKnownState(row)"
+                      ><el-icon><SwitchButton /></el-icon>{{ isEnabled(row) ? '禁用账号' : '启用账号' }}</el-dropdown-item
+                    >
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </div>
           </template>
         </el-table-column>
@@ -238,11 +243,12 @@ import {
   type UploadInstance,
   type UploadRawFile,
 } from 'element-plus'
-import { Download, Plus, Refresh, Search, Upload, UploadFilled } from '@element-plus/icons-vue'
+import { Download, Key, MoreFilled, Plus, Refresh, Search, SwitchButton, Upload, UploadFilled } from '@element-plus/icons-vue'
 import { userApi } from '@/api/auth'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import EmptyState from '@/components/EmptyState.vue'
+import { useViewport } from '@/composables/useViewport'
 import { formatDate } from '@/utils/format'
 import type { KubeResource } from '@/types/api'
 
@@ -263,6 +269,7 @@ const activeKeyword = ref('')
 const pageNum = ref(1)
 const pageSize = ref(10)
 const actionLoading = ref('')
+const { isWide } = useViewport()
 let listGeneration = 0
 
 const userDialogVisible = ref(false)
@@ -438,6 +445,11 @@ function openPassword(user: UserResource) {
   passwordDialogVisible.value = true
 }
 
+function onRowCommand(command: string, user: UserResource) {
+  if (command === 'password') openPassword(user)
+  else if (command === 'status') void toggleStatus(user)
+}
+
 function resetPasswordForm() {
   passwordFormRef.value?.clearValidate()
   Object.assign(passwordModel, { userName: '', newPassword: '', confirmPassword: '' })
@@ -576,6 +588,13 @@ onMounted(loadUsers)
 .search-input {
   width: min(320px, 100%);
 }
+.toolbar__group {
+  flex-wrap: nowrap;
+}
+.more-button {
+  min-height: auto;
+  padding: 4px;
+}
 .account-cell {
   display: flex;
   align-items: center;
@@ -654,6 +673,7 @@ onMounted(loadUsers)
   }
   .toolbar__group {
     width: 100%;
+    flex-wrap: wrap;
   }
   .toolbar__group .el-button {
     flex-shrink: 0;

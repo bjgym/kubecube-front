@@ -65,6 +65,16 @@ hotplug state, so it must be re-applied before a Live run. Do not treat the patc
 durable platform configuration. The Logseer service is the test-only adapter under
 `modern/test-support/logseer-adapter`, not a production Logseer deployment.
 
+For a local browser or Playwright run against a remote cluster, forward the chart's
+Service instead of hardcoding a ClusterIP:
+
+```shell
+kubectl -n kubecube-system port-forward svc/frontend-nodeport 30080:80
+# Only needed when the console is served by the Vite dev server rather than by the
+# chart's nginx:
+kubectl -n kubecube-system port-forward svc/webconsole 19081:9081
+```
+
 ## Local UI preview
 
 Use `npm run dev` for UI work and `VITE_USE_MOCK=true` for a backend-independent
