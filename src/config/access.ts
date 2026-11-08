@@ -12,3 +12,9 @@ export function platformLanding(identities: RoleIdentities | undefined): string 
   if (identities?.tenantAdmin) return '/platform/tenant/tenant'
   return '/platform/role/platform'
 }
+
+// The resource console home follows the capabilities of the installation. The
+// dashboard is monitoring-backed; without it, workloads are the useful landing.
+export function controlLanding(monitoring: boolean): string {
+  return monitoring ? '/control/dashboard' : '/control/deployments/list'
+}

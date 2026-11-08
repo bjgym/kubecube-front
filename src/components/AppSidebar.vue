@@ -1,36 +1,45 @@
 <template>
   <aside class="app-sidebar" :class="{ 'is-collapsed': collapsed }">
     <div class="app-sidebar__brand"><AppLogo :compact="collapsed" /></div>
-    <div class="app-sidebar__caption">{{ isPlatform ? 'PLATFORM' : 'WORKSPACE' }}</div>
-    <el-scrollbar class="app-sidebar__scroll">
-      <nav :aria-label="isPlatform ? '运维管理导航' : '资源控制台导航'">
-        <el-menu :default-active="activePath" :collapse="collapsed" :collapse-transition="false" unique-opened @select="onSelect">
-          <template v-for="item in visibleItems" :key="item.label">
-            <el-sub-menu v-if="item.children" :index="item.label">
-              <template #title
-                ><el-icon><component :is="icons[item.icon]" /></el-icon><span>{{ item.label }}</span></template
-              >
-              <el-menu-item v-for="child in item.children" :key="child.path" :index="child.path">{{ child.label }}</el-menu-item>
-            </el-sub-menu>
-            <el-menu-item v-else :index="item.action || item.path">
-              <el-icon><component :is="icons[item.icon]" /></el-icon>
-              <template #title
-                >{{ item.label }}<el-icon v-if="item.action" class="action-icon"><TopRight /></el-icon
-              ></template>
-            </el-menu-item>
-          </template>
-        </el-menu>
-      </nav>
-    </el-scrollbar>
-    <button v-if="!isPlatform" class="app-sidebar__workspace" type="button" @click="router.push('/namespace')">
-      <span class="workspace__icon"
-        ><el-icon><Grid /></el-icon
-      ></span>
-      <span v-if="!collapsed" class="workspace__text"
-        ><small>当前工作空间</small><strong>{{ scope.currentProject?.spec?.displayName || '选择项目' }}</strong></span
-      >
-      <el-icon v-if="!collapsed" class="workspace__arrow"><ArrowRight /></el-icon>
-    </button>
+    <nav class="app-sidebar__areas" aria-label="控制台区域">
+      <el-menu :default-active="activeArea" :collapse="collapsed" :collapse-transition="false" @select="onAreaSelect">
+        <el-menu-item index="workspace">
+          <el-icon><Grid /></el-icon>
+          <template #title>工作空间</template>
+        </el-menu-item>
+        <el-menu-item index="console">
+          <el-icon><Odometer /></el-icon>
+          <template #title>资源控制台</template>
+        </el-menu-item>
+        <el-menu-item v-if="canManagePlatform" index="platform">
+          <el-icon><SetUp /></el-icon>
+          <template #title>运维管理</template>
+        </el-menu-item>
+      </el-menu>
+    </nav>
+    <template v-if="visibleItems.length">
+      <div class="app-sidebar__caption">{{ isPlatform ? '平台功能' : '资源管理' }}</div>
+      <el-scrollbar class="app-sidebar__scroll">
+        <nav :aria-label="isPlatform ? '运维管理导航' : '资源控制台导航'">
+          <el-menu :default-active="activePath" :collapse="collapsed" :collapse-transition="false" unique-opened @select="onSelect">
+            <template v-for="item in visibleItems" :key="item.label">
+              <el-sub-menu v-if="item.children" :index="item.label">
+                <template #title
+                  ><el-icon><component :is="icons[item.icon]" /></el-icon><span>{{ item.label }}</span></template
+                >
+                <el-menu-item v-for="child in item.children" :key="child.path" :index="child.path">{{ child.label }}</el-menu-item>
+              </el-sub-menu>
+              <el-menu-item v-else :index="item.action || item.path">
+                <el-icon><component :is="icons[item.icon]" /></el-icon>
+                <template #title
+                  >{{ item.label }}<el-icon v-if="item.action" class="action-icon"><TopRight /></el-icon
+                ></template>
+              </el-menu-item>
+            </template>
+          </el-menu>
+        </nav>
+      </el-scrollbar>
+    </template>
   </aside>
 </template>
 
@@ -38,7 +47,6 @@
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
-  ArrowRight,
   DataAnalysis,
   Box,
   Connection,
@@ -57,6 +65,7 @@ import {
   TopRight,
 } from '@element-plus/icons-vue'
 import AppLogo from './AppLogo.vue'
+import { controlLanding, platformLanding } from '@/config/access'
 import { canAccessPath } from '@/config/policy'
 import { controlNavigation, platformNavigation, type NavItem } from '@/config/navigation'
 import { useAuthStore } from '@/stores/auth'
@@ -90,14 +99,19 @@ const icons: Record<string, unknown> = {
   Odometer,
 }
 const isPlatform = computed(() => route.path.startsWith('/platform'))
+const isControl = computed(() => route.path.startsWith('/control'))
 const activePath = computed(() => route.path)
+const activeArea = computed(() =>
+  isPlatform.value ? 'platform' : isControl.value ? 'console' : route.name === 'namespace' ? 'workspace' : '',
+)
 const featureAccess = computed(() => ({ monitoring: features.monitoring, logseer: features.logseer, audit: features.audit }))
+const canManagePlatform = computed(() => canAccessPath('/platform/', auth.identities, featureAccess.value, features.auditEnabled))
 function canSee(item: NavItem): boolean {
   if (item.path && !canAccessPath(item.path, auth.identities, featureAccess.value, features.auditEnabled)) return false
   return true
 }
 const visibleItems = computed(() =>
-  (isPlatform.value ? platformNavigation : controlNavigation)
+  (isPlatform.value ? platformNavigation : isControl.value ? controlNavigation : [])
     .filter(canSee)
     .map((item) => ({
       ...item,
@@ -105,6 +119,13 @@ const visibleItems = computed(() =>
     }))
     .filter((item) => !item.children || item.children.length > 0),
 )
+
+async function onAreaSelect(index: string) {
+  if (index === 'workspace') await router.push({ path: '/namespace', query: scope.query })
+  else if (index === 'console') await router.push({ path: controlLanding(features.monitoring), query: scope.query })
+  else if (index === 'platform') await router.push(platformLanding(auth.identities))
+  ui.mobileSidebarOpen = false
+}
 
 function onSelect(index: string) {
   const item: NavItem | undefined = [...controlNavigation, ...platformNavigation].find((entry) => entry.action === index)
@@ -142,6 +163,10 @@ function onSelect(index: string) {
 .is-collapsed .app-sidebar__brand {
   justify-content: center;
   padding: 0;
+}
+.app-sidebar__areas {
+  flex-shrink: 0;
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
 }
 .app-sidebar__caption {
   padding: 20px 24px 8px;
@@ -203,58 +228,6 @@ function onSelect(index: string) {
   margin-left: auto;
   font-size: 12px !important;
   opacity: 0.5;
-}
-.app-sidebar__workspace {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 68px;
-  margin: 12px;
-  padding: 12px;
-  color: #d0d5dd;
-  text-align: left;
-  background: #1d2939;
-  border: 1px solid #344054;
-  border-radius: 10px;
-  cursor: pointer;
-}
-.app-sidebar__workspace:hover {
-  background: #26364c;
-}
-.is-collapsed .app-sidebar__workspace {
-  justify-content: center;
-  min-height: 48px;
-  padding: 8px;
-}
-.workspace__icon {
-  display: grid;
-  width: 30px;
-  height: 30px;
-  flex: 0 0 30px;
-  color: #c7d2fe;
-  background: rgb(91 108 255 / 20%);
-  border-radius: 7px;
-  place-items: center;
-}
-.workspace__text {
-  display: flex;
-  min-width: 0;
-  flex: 1;
-  flex-direction: column;
-}
-.workspace__text small {
-  color: #98a2b3;
-  font-size: 10px;
-}
-.workspace__text strong {
-  overflow: hidden;
-  margin-top: 2px;
-  font-size: 12px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.workspace__arrow {
-  font-size: 12px;
 }
 @media (max-width: 1024px) {
   .app-sidebar {

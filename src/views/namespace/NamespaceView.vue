@@ -175,6 +175,7 @@ import { clusterApi, namespaceApi } from '@/api/cluster'
 import { monitorApi } from '@/api/observability'
 import { resourceApi } from '@/api/resource'
 import { getResourceConfig } from '@/config/resources'
+import { controlLanding } from '@/config/access'
 import { useAuthStore } from '@/stores/auth'
 import { useScopeStore } from '@/stores/scope'
 import { useFeatureStore } from '@/stores/feature'
@@ -486,8 +487,7 @@ function clearFilters() {
   clusterFilter.value = ''
 }
 async function openConsole(card: NamespaceCard) {
-  const path = features.monitoring ? '/control/dashboard' : '/control/deployments/list'
-  await navigateToScope(router, path, scope.query, { cluster: card.cluster, namespace: card.name })
+  await navigateToScope(router, controlLanding(features.monitoring), scope.query, { cluster: card.cluster, namespace: card.name })
 }
 async function openResource(card: NamespaceCard, resource: ResourceKey) {
   await navigateToScope(router, `/control/${resource}/list`, scope.query, { cluster: card.cluster, namespace: card.name })

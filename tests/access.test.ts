@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { hasAnyRole, platformLanding } from '@/config/access'
+import { hasAnyRole, controlLanding, platformLanding } from '@/config/access'
 
 describe('manager access policy', () => {
   it('treats an omitted role list as available to every authenticated user', () => {
@@ -18,5 +18,10 @@ describe('manager access policy', () => {
     expect(platformLanding({ tenantAdmin: true })).toBe('/platform/tenant/tenant')
     expect(platformLanding({ projectAdmin: true })).toBe('/platform/role/platform')
     expect(platformLanding({})).toBe('/platform/role/platform')
+  })
+
+  it('selects a resource console landing supported by the enabled features', () => {
+    expect(controlLanding(true)).toBe('/control/dashboard')
+    expect(controlLanding(false)).toBe('/control/deployments/list')
   })
 })

@@ -29,12 +29,30 @@ test('login and cross-cluster workspace overview', async ({ page }) => {
   await screenshot(page, '02-namespace')
 })
 
-test('workspace landing keeps the resource console sidebar', async ({ page }) => {
+test('workspace, resource console and platform areas stay reachable from the sidebar', async ({ page }) => {
   await login(page)
   await page.goto('/public/#/namespace')
   await expect(page.getByRole('heading', { name: '全部空间', exact: true })).toBeVisible()
-  await expect(page.locator('.app-sidebar')).toBeVisible()
+  const areas = page.locator('.app-sidebar__areas')
+  await expect(areas.locator('.el-menu-item.is-active')).toHaveText('工作空间')
+  await expect(page.locator('.app-header__area > span')).toHaveText('工作空间')
+
+  await areas.getByText('资源控制台', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/control\/dashboard/)
+  await expect(areas.locator('.el-menu-item.is-active')).toHaveText('资源控制台')
+  await expect(page.locator('.app-header__area > span')).toHaveText('资源控制台')
   await expect(page.locator('.app-sidebar').getByText('资源监控', { exact: true })).toBeVisible()
+
+  await areas.getByText('工作空间', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/namespace/)
+  await areas.getByText('运维管理', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/platform\/user\/list/)
+  await expect(areas.locator('.el-menu-item.is-active')).toHaveText('运维管理')
+  await expect(page.getByRole('button', { name: '工作空间', exact: true })).toBeVisible()
+
+  await areas.getByText('资源控制台', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/control\/dashboard/)
+  await expect(page.locator('.app-header__area > span')).toHaveText('资源控制台')
 })
 
 test('login ignores an external redirect target', async ({ page }) => {
@@ -138,6 +156,19 @@ test('mobile login and workspace have no document-level horizontal overflow', as
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)
   expect(overflow).toBeLessThanOrEqual(1)
   await screenshot(page, '06-mobile-namespace')
+})
+
+test('mobile sidebar exposes console areas and closes after navigation', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await login(page)
+  await page.goto('/public/#/namespace')
+  await page.getByRole('button', { name: '打开导航', exact: true }).click()
+  const sidebar = page.locator('.app-sidebar')
+  await expect(sidebar).toBeVisible()
+  await expect(sidebar.locator('.app-sidebar__areas').getByText('资源控制台', { exact: true })).toBeVisible()
+  await sidebar.locator('.app-sidebar__areas').getByText('资源控制台', { exact: true }).click()
+  await expect(page).toHaveURL(/#\/control\/dashboard/)
+  await expect(sidebar).not.toBeVisible()
 })
 
 test('platform administration pages render real mock-backed data', async ({ page }) => {
@@ -286,6 +317,8 @@ test('normal users keep control access and cannot open platform pages directly',
   await expect(page.getByRole('heading', { name: '您没有访问此页面的权限', exact: true })).toBeVisible()
   await page.goto('/public/#/control/deployments/list')
   await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible()
+  await expect(page.locator('.app-sidebar__areas').getByText('资源控制台', { exact: true })).toBeVisible()
+  await expect(page.locator('.app-sidebar__areas').getByText('运维管理', { exact: true })).toHaveCount(0)
 })
 
 test('ConfigMap wizard edits structured keys', async ({ page }) => {

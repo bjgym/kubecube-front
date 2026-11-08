@@ -5,15 +5,15 @@
         <el-icon><Fold v-if="!mobile && !ui.sidebarCollapsed" /><Expand v-else-if="!mobile" /><Menu v-else /></el-icon>
       </button>
       <div class="app-header__area">
-        <span>{{ isPlatform ? '运维管理' : '资源控制台' }}</span
-        ><small>{{ isPlatform ? '组织、集群与平台治理' : '多集群 Kubernetes 工作空间' }}</small>
+        <span>{{ areaTitle }}</span
+        ><small>{{ areaSubtitle }}</small>
       </div>
     </div>
     <div class="app-header__right">
       <span v-if="mock" class="mock-badge">UI 预览</span>
-      <el-tooltip :content="isPlatform ? '进入资源控制台' : '进入运维管理'" placement="bottom">
+      <el-tooltip :content="isPlatform ? '进入工作空间' : '进入运维管理'" placement="bottom">
         <el-button v-if="auth.canManage" class="switch-button" @click="switchArea"
-          ><el-icon><Switch /></el-icon><span>{{ isPlatform ? '资源控制台' : '运维管理' }}</span></el-button
+          ><el-icon><Switch /></el-icon><span>{{ isPlatform ? '工作空间' : '运维管理' }}</span></el-button
         >
       </el-tooltip>
       <span class="divider" />
@@ -59,6 +59,18 @@ const auth = useAuthStore()
 const scope = useScopeStore()
 const ui = useUiStore()
 const isPlatform = computed(() => route.path.startsWith('/platform'))
+const areaTitle = computed(() => {
+  if (isPlatform.value) return '运维管理'
+  if (route.name === 'namespace') return '工作空间'
+  if (route.path.startsWith('/control')) return '资源控制台'
+  return '账户设置'
+})
+const areaSubtitle = computed(() => {
+  if (isPlatform.value) return '组织、集群与平台治理'
+  if (route.name === 'namespace') return '跨集群空间与资源总览'
+  if (route.path.startsWith('/control')) return '多集群 Kubernetes 工作空间'
+  return '账号密钥与访问管理'
+})
 const mock = import.meta.env.VITE_USE_MOCK === 'true'
 const avatarText = computed(() => (auth.user?.AccountDisplayName || auth.user?.AccountId || 'U').slice(0, 1).toUpperCase())
 const roleText = computed(() =>
