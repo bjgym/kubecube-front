@@ -38,7 +38,10 @@ const router = useRouter()
 const scope = useScopeStore()
 const ui = useUiStore()
 const { isTablet: isMobile } = useViewport()
-const showSidebar = computed(() => route.name !== 'namespace')
+// The workspace landing page is still part of the resource console; keep the
+// same navigation as every other console page so the sidebar does not vanish
+// when a user switches here from the platform area.
+const showSidebar = computed(() => true)
 const showScope = computed(() => route.path.startsWith('/control') || route.name === 'namespace')
 async function syncScopeFromRoute() {
   if (!showScope.value) return

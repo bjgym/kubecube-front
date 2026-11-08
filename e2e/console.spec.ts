@@ -29,6 +29,14 @@ test('login and cross-cluster workspace overview', async ({ page }) => {
   await screenshot(page, '02-namespace')
 })
 
+test('workspace landing keeps the resource console sidebar', async ({ page }) => {
+  await login(page)
+  await page.goto('/public/#/namespace')
+  await expect(page.getByRole('heading', { name: '全部空间', exact: true })).toBeVisible()
+  await expect(page.locator('.app-sidebar')).toBeVisible()
+  await expect(page.locator('.app-sidebar').getByText('资源监控', { exact: true })).toBeVisible()
+})
+
 test('login ignores an external redirect target', async ({ page }) => {
   await page.goto('/public/#/login?redirect=//evil.example.com/steal')
   await page.getByPlaceholder('请输入账号').fill('admin')
