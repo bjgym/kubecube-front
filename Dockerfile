@@ -4,11 +4,11 @@
 
 FROM docker.io/library/node:24-alpine AS builder
 
-WORKDIR /app/modern
-COPY modern/package.json modern/package-lock.json ./
+WORKDIR /app
+COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 
-COPY modern ./
+COPY . .
 ARG VITE_BRAND_NAME=KubeCube
 ENV VITE_BRAND_NAME=${VITE_BRAND_NAME}
 RUN npm run build

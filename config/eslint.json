@@ -1,8 +1,0 @@
-{
-    "extends": [
-        "eslint-config-2o3t/vue"
-    ],
-    "rules": {
-        "no-unused-vars": [0]
-    }
-}
