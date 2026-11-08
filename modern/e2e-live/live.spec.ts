@@ -709,7 +709,10 @@ test('live expired session redirects to login', async ({ page }) => {
   test.setTimeout(120_000)
   await login(page)
   await page.context().clearCookies()
-  await page.goto('/public/#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')
+  // Hash-only navigation does not reload the document, so the in-memory auth
+  // state would survive and this would not exercise an expired session. Load a
+  // fresh document while keeping the stale localStorage user.
+  await page.goto('/public/index.html#/control/deployments/list?cluster=pivot-cluster&namespace=kubecube-system')
   await expect(page).toHaveURL(/#\/login/, { timeout: 60_000 })
   await expect(page.getByPlaceholder('请输入账号')).toBeVisible()
 })
