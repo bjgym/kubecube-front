@@ -4,6 +4,22 @@ const userName = process.env.KUBECUBE_LIVE_USER || 'admin'
 const password = process.env.KUBECUBE_LIVE_PASSWORD || ''
 test.skip(!password, 'Set KUBECUBE_LIVE_PASSWORD to run the live KubeCube suite')
 
+async function waitForTunnel(page: Page) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      const response = await page.request.get('/healthz', { timeout: 2_000 })
+      if (response.ok()) return
+    } catch {
+      /* tunnel is restarting */
+    }
+    await page.waitForTimeout(1_000)
+  }
+}
+
+test.beforeEach(async ({ page }) => {
+  await waitForTunnel(page)
+})
+
 async function login(page: Page) {
   await page.goto('/public/#/login')
   await page.getByPlaceholder('请输入账号').fill(userName)

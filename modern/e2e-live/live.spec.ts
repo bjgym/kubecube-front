@@ -10,6 +10,22 @@ async function screenshot(page: Page, name: string) {
   await page.screenshot({ path: `artifacts/live/${name}.png`, fullPage: true })
 }
 
+async function waitForTunnel(page: Page) {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    try {
+      const response = await page.request.get('/healthz', { timeout: 2_000 })
+      if (response.ok()) return
+    } catch {
+      /* tunnel is restarting */
+    }
+    await page.waitForTimeout(1_000)
+  }
+}
+
+test.beforeEach(async ({ page }) => {
+  await waitForTunnel(page)
+})
+
 async function loginAs(page: Page, name: string, secret: string) {
   for (let attempt = 0; attempt < 3; attempt++) {
     try {
@@ -582,14 +598,25 @@ test('live container terminal connects through WebConsole', async ({ page }) => 
 test('live concurrent 401 responses redirect once', async ({ page }) => {
   test.setTimeout(120_000)
   await login(page)
+  // Same as the expired-session test: leave the app so a pending identities
+  // response cannot refresh the cookie after it is cleared.
+  await page.goto('about:blank')
   await page.context().clearCookies()
-  let loginNavigations = 0
-  page.on('framenavigated', (frame) => {
-    if (frame === page.mainFrame() && frame.url().includes('/#/login')) loginNavigations++
+  // Vue Router replaces the hash with history.replaceState, which does not emit
+  // framenavigated/hashchange; count the redirect at the history API boundary.
+  await page.addInitScript(() => {
+    const state = window as unknown as { __loginNavigations: number }
+    state.__loginNavigations = 0
+    const original = history.replaceState.bind(history)
+    history.replaceState = (...args: Parameters<History['replaceState']>) => {
+      if (String(args[2] || '').includes('/login')) state.__loginNavigations++
+      return original(...args)
+    }
   })
-  await page.goto('/public/#/namespace')
+  await page.goto('/public/index.html#/namespace')
   await expect(page).toHaveURL(/#\/login/, { timeout: 60_000 })
   await page.waitForTimeout(3000)
+  const loginNavigations = await page.evaluate(() => (window as unknown as { __loginNavigations?: number }).__loginNavigations || 0)
   expect(loginNavigations).toBe(1)
 })
 
