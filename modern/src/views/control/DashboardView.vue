@@ -125,15 +125,15 @@
                   >
                     <span>{{ stat.name }}</span>
                     <strong
-                      >{{ formatPanelValue(stat.value, panel.unit).value
-                      }}<small>{{ formatPanelValue(stat.value, panel.unit).unit }}</small></strong
+                      >{{ formatMetric(stat.value, panel.unit).value
+                      }}<small>{{ formatMetric(stat.value, panel.unit).unit }}</small></strong
                     >
                   </router-link>
                   <div v-else class="stat-entry">
                     <span>{{ stat.name }}</span>
                     <strong
-                      >{{ formatPanelValue(stat.value, panel.unit).value
-                      }}<small>{{ formatPanelValue(stat.value, panel.unit).unit }}</small></strong
+                      >{{ formatMetric(stat.value, panel.unit).value
+                      }}<small>{{ formatMetric(stat.value, panel.unit).unit }}</small></strong
                     >
                   </div>
                 </template>
@@ -216,7 +216,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch, type ComponentPublicInstance } from 'vue'
 import { useRoute } from 'vue-router'
 import * as echarts from 'echarts'
-import type { ECharts, EChartsOption, LineSeriesOption } from 'echarts'
+import type { ECharts } from 'echarts'
 import { Coin, Connection, Cpu, DataAnalysis, Odometer, Refresh } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import MetricCard from '@/components/MetricCard.vue'
@@ -224,96 +224,52 @@ import EmptyState from '@/components/EmptyState.vue'
 import { monitorApi } from '@/api/observability'
 import { getResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
-import { formatBytes, formatDate, formatNumber } from '@/utils/format'
-
-type ContextKind = 'namespace' | 'workload' | 'cluster' | 'component'
-type ChartKey = 'cpu' | 'memory' | 'network' | 'capacity'
-type MetricKey = 'cpu' | 'memory' | 'network' | 'available'
-type UnitKind = 'cpu' | 'memory' | 'bytesPerSecond' | 'requestsPerSecond' | 'count' | 'fileDescriptors' | 'percent' | 'seconds'
-interface QueryDefinition {
-  name: string
-  query: string
-  color: string
-}
-interface ChartDefinition {
-  key: ChartKey
-  title: string
-  description: string
-  footer: string
-  unit: UnitKind
-  queries: QueryDefinition[]
-}
-interface SeriesState {
-  name: string
-  color?: string
-  values: [number, number][]
-}
-interface ChartState {
-  series: SeriesState[]
-  loading: boolean
-  error: string
-}
-interface MetricState {
-  value: number | null
-  error: string
-}
-interface MetricDefinition {
-  key: MetricKey
-  label: string
-  caption: string
-  unit: UnitKind
-  query: string
-  tone: 'brand' | 'success' | 'warning' | 'info'
-}
-interface DashboardTarget {
-  name: string
-  query: string
-  legend: string
-  ref: string
-  instant: boolean
-}
-interface DashboardVariable {
-  name: string
-  label: string
-  request: string
-  includeAll: boolean
-  options?: string[]
-}
-interface DashboardTableStyle {
-  alias: string
-  pattern: string
-  unit: UnitKind
-  link: boolean
-  linkUrl: string
-}
-interface DynamicPanel {
-  id: string
-  type: 'graph' | 'table' | 'singleStat'
-  title: string
-  span: number
-  unit: UnitKind
-  targets: DashboardTarget[]
-  state: ChartState
-  tableRows: Array<Record<string, unknown>>
-  tableColumns: string[]
-  tableStyles: DashboardTableStyle[]
-  tableUnits: Record<string, UnitKind>
-  stats: Array<{ name: string; value: number | null }>
-  stack: boolean
-  axisMin?: number
-  axisMax?: number
-  linkUrl: string
-}
-interface DynamicRow {
-  name: string
-  panels: DynamicPanel[]
-}
-interface DashboardSpec {
-  title?: string
-  selectshowable?: string | boolean
-  variables?: Array<Record<string, any>>
-  rows?: Array<Record<string, any>>
-}
+import { formatDate } from '@/utils/format'
+import {
+  applyVariables as applyVariablesToValues,
+  buildDashboardContextValues,
+  buildVariableOptions,
+  createChartStates,
+  createMetricStates,
+  hasDashboardRows,
+  labelValues,
+  parseLabelValuesRequest,
+  parseRows,
+  parseVariables,
+  selectVariableValue,
+  seriesLabelValues,
+  visibleRows as selectVisibleRows,
+  type ChartDefinition,
+  type ChartKey,
+  type ChartState,
+  type ContextKind,
+  type DashboardSpec,
+  type DashboardTarget,
+  type DashboardVariable,
+  type DynamicPanel,
+  type DynamicRow,
+  type MetricDefinition,
+  type MetricKey,
+  type MetricState,
+} from './dashboard/parser'
+import {
+  buildChartDefinitions,
+  buildMetricDefinitions,
+  instantValue,
+  queryStep,
+  resultSeries,
+  tableFromResponses,
+  type PrometheusContext,
+} from './dashboard/prometheus'
+import {
+  SERIES_PALETTE,
+  chartOption,
+  formatMetric,
+  statLink as resolveStatLink,
+  tableCell,
+  tableColumnLabel,
+  tableLink as resolveTableLink,
+} from './dashboard/charts'
 
 const route = useRoute()
 const scope = useScopeStore()
@@ -353,12 +309,8 @@ const dashboardRows = ref<DynamicRow[]>([])
 const panelVisibility = ref<Record<string, boolean>>({})
 const dimensionDialogOpen = ref(false)
 const selectShowable = computed(() => String(dashboardSpec.value?.selectshowable || '') === 'true')
-const visibleRows = computed(() =>
-  dashboardRows.value
-    .map((row) => ({ ...row, panels: row.panels.filter((panel) => panelVisibility.value[panel.id] !== false) }))
-    .filter((row) => row.panels.length),
-)
-const hasDashboard = computed(() => dashboardRows.value.some((row) => row.panels.length > 0))
+const visibleRows = computed(() => selectVisibleRows(dashboardRows.value, panelVisibility.value))
+const hasDashboard = computed(() => hasDashboardRows(dashboardRows.value))
 let resizeObserver: ResizeObserver | undefined
 let refreshTimer: number | undefined
 let mounted = false
@@ -458,141 +410,32 @@ const contextItems = computed(() => {
   return items
 })
 
-function createChartStates(): Record<ChartKey, ChartState> {
-  return {
-    cpu: { series: [], loading: false, error: '' },
-    memory: { series: [], loading: false, error: '' },
-    network: { series: [], loading: false, error: '' },
-    capacity: { series: [], loading: false, error: '' },
-  }
-}
-function createMetricStates(): Record<MetricKey, MetricState> {
-  return {
-    cpu: { value: null, error: '' },
-    memory: { value: null, error: '' },
-    network: { value: null, error: '' },
-    available: { value: null, error: '' },
-  }
-}
-function normalizeUnit(value: unknown): UnitKind {
-  const unit = String(value || '')
-  if (['percentunit', 'percent', '%'].includes(unit)) return 'percent'
-  if (['byte', 'bytes', 'decbytes'].includes(unit)) return 'memory'
-  if (['Bps', 'binBps', 'decBps'].includes(unit)) return 'bytesPerSecond'
-  if (['pps', 'ops', 'reqps'].includes(unit)) return 'requestsPerSecond'
-  if (['cores', 'cpu'].includes(unit)) return 'cpu'
-  if (['s', 'seconds'].includes(unit)) return 'seconds'
-  return 'count'
-}
 function dashboardContextValues(): Record<string, string> {
-  return {
+  return buildDashboardContextValues({
     tenant: scope.tenant,
     project: scope.project,
     cluster: targetCluster.value,
     namespace: namespaceName.value,
-    workload: instanceName.value,
-    pod: instanceName.value,
-    volume: instanceName.value,
-    type: workload.value.replace(/s$/, ''),
+    instance: instanceName.value,
+    workload: workload.value,
     node: nodeName.value,
-    ...dashboardVariableValues.value,
-  }
-}
-function applyVariables(template: string, extra: Record<string, string> = {}): string {
-  const values = { ...dashboardContextValues(), ...extra }
-  return String(template || '').replace(
-    /\[\[([A-Za-z0-9_]+)\]\]|\$\{([A-Za-z0-9_]+)\}|\$([A-Za-z0-9_]+)/g,
-    (_match, bracket: string, braced: string, dollar: string) => values[bracket || braced || dollar] ?? '',
-  )
-}
-function parseVariables(spec: DashboardSpec): DashboardVariable[] {
-  return (spec.variables || [])
-    .map((item) => {
-      const query = (item.query || {}) as Record<string, unknown>
-      return {
-        name: String(query.name || item.name || ''),
-        label: String(query.label || query.name || item.name || ''),
-        request: String(query.request || ''),
-        includeAll: query.includeAll === true || query.includeAll === 'true',
-      }
-    })
-    .filter((item) => item.name)
-}
-function parseRows(spec: DashboardSpec): DynamicRow[] {
-  return (spec.rows || []).map((row, rowIndex) => {
-    const panels = (Array.isArray(row.panels) ? row.panels : []).flatMap((rawPanel, panelIndex) => {
-      const entry = rawPanel as Record<string, any>
-      const type = (['graph', 'table', 'singleStat'] as const).find((candidate) => entry[candidate])
-      if (!type) return []
-      const config = (entry[type] || {}) as Record<string, any>
-      if (config.hidden) return []
-      const targets = (Array.isArray(config.targets) ? config.targets : [])
-        .map((target: Record<string, any>, targetIndex: number) => {
-          const prometheus = (target.prometheus || {}) as Record<string, unknown>
-          return {
-            name: String(prometheus.legend || `序列 ${targetIndex + 1}`),
-            query: String(prometheus.query || ''),
-            legend: String(prometheus.legend || ''),
-            ref: String(prometheus.ref || String.fromCharCode(65 + targetIndex)),
-            instant: prometheus.instant === true || prometheus.instant === 'true',
-          }
-        })
-        .filter((target: DashboardTarget) => target.query)
-      return [
-        {
-          id: `row-${rowIndex}-panel-${panelIndex}`,
-          type,
-          title: String(config.title || (type === 'singleStat' ? '指标' : '监控图表')),
-          span: Math.max(1, Math.min(12, Number(config.span) || (type === 'graph' ? 6 : type === 'table' ? 12 : 2))),
-          unit: normalizeUnit(config.unit || config.axes?.left?.unit || config.axes?.y?.unit || config.styles?.[0]?.unit),
-          targets,
-          state: { series: [], loading: false, error: '' } as ChartState,
-          tableRows: [] as Array<Record<string, unknown>>,
-          tableColumns: [] as string[],
-          tableStyles: (Array.isArray(config.styles) ? config.styles : [])
-            .map((style: Record<string, any>) => ({
-              alias: String(style.alias || ''),
-              pattern: String(style.pattern || ''),
-              unit: normalizeUnit(style.unit),
-              link: Boolean(style.link),
-              linkUrl: String(style.linkUrl || ''),
-            }))
-            .filter((style: { alias: string }) => style.alias),
-          tableUnits: Object.fromEntries(
-            (Array.isArray(config.styles) ? config.styles : [])
-              .filter((style: Record<string, any>) => style.alias)
-              .map((style: Record<string, any>) => [String(style.alias), normalizeUnit(style.unit)]),
-          ),
-          stats: [] as Array<{ name: string; value: number | null }>,
-          stack: Boolean(config.stack),
-          axisMin: Number.isFinite(Number(config.axes?.left?.min)) ? Number(config.axes.left.min) : undefined,
-          axisMax: Number.isFinite(Number(config.axes?.left?.max)) ? Number(config.axes.left.max) : undefined,
-          linkUrl: String(config.linkUrl || ''),
-        },
-      ]
-    })
-    return { name: String(row.name || row.title || `监控区域 ${rowIndex + 1}`), panels: panels as DynamicPanel[] }
+    variables: dashboardVariableValues.value,
   })
 }
+function applyVariables(template: string, extra: Record<string, string> = {}): string {
+  return applyVariablesToValues(template, dashboardContextValues(), extra)
+}
 async function resolveVariableOptions(variable: DashboardVariable): Promise<string[]> {
-  const expression = variable.request.match(/^label_values\((?:(.+),\s*)?([A-Za-z_][A-Za-z0-9_]*)\)\s*$/)
+  const expression = parseLabelValuesRequest(variable.request)
   if (!expression) return []
-  const [, metric, label] = expression
   const end = Math.floor(Date.now() / 1000)
   const start = end - Math.floor(rangeMs.value / 1000)
-  if (metric) {
-    const response = await monitorApi.series({ 'match[]': applyVariables(metric), start, end })
-    const root = response as Record<string, any>
-    const list = Array.isArray(root.data) ? root.data : Array.isArray(root) ? root : []
-    return [...new Set(list.map((item: Record<string, unknown>) => String(item[label!] || '')).filter(Boolean))]
+  if (expression.metric) {
+    const response = await monitorApi.series({ 'match[]': applyVariables(expression.metric), start, end })
+    return seriesLabelValues(response, expression.label)
   }
-  const response = await monitorApi.labels(label!, { start, end })
-  const root = response as Record<string, any>
-  const list = Array.isArray(root.data) ? root.data : Array.isArray(root.data?.data) ? root.data.data : []
-  const values = (list as unknown[])
-    .map((item: unknown) => (typeof item === 'string' ? item : String((item as Record<string, unknown>)?.value || '')))
-    .filter((value: unknown): value is string => Boolean(value))
-  return [...new Set<string>(values)]
+  const response = await monitorApi.labels(expression.label, { start, end })
+  return labelValues(response)
 }
 async function requestDashboardDefinition(cluster: string): Promise<Record<string, any>> {
   if (contextKind.value !== 'component') return (await monitorApi.dashboard(cluster, dashboardResourceName.value)) as Record<string, any>
@@ -630,11 +473,9 @@ async function loadDashboardDefinition() {
     for (const variable of dashboardVariables.value) {
       const loaded = await resolveVariableOptions(variable)
       if (expectedContext !== contextKey.value) return
-      const options = variable.includeAll && !loaded.includes('.*') ? ['.*', ...loaded] : loaded
+      const options = buildVariableOptions(loaded, variable.includeAll)
       const contextValue = dashboardContextValues()[variable.name] || ''
-      const selected = options.includes(contextValue)
-        ? contextValue
-        : options.find((option) => option !== '.*') || (variable.includeAll ? '.*' : '') || contextValue
+      const selected = selectVariableValue(options, contextValue, variable.includeAll)
       if (!selected) throw new Error(`Dashboard 变量 ${variable.label || variable.name} 暂无可选项`)
       dashboardVariableValues.value[variable.name] = selected
       variable.options = options
@@ -655,7 +496,7 @@ async function loadDynamicMonitoring() {
   const current = ++requestId
   const end = Math.floor(Date.now() / 1000)
   const start = end - Math.floor(rangeMs.value / 1000)
-  const step = queryStep()
+  const step = queryStep(rangeMs.value)
   loading.value = true
   loadError.value = ''
   const failures: string[] = []
@@ -675,7 +516,7 @@ async function loadDynamicMonitoring() {
               resultSeries(response, {
                 name: panel.targets[index]!.name,
                 query: applyVariables(panel.targets[index]!.query),
-                color: ['#5b6cff', '#12b76a', '#2e90fa', '#f79009', '#7a5af8', '#f04438'][index % 6]!,
+                color: SERIES_PALETTE[index % SERIES_PALETTE.length]!,
               }),
             )
             panel.state = { series, loading: false, error: '' }
@@ -685,41 +526,7 @@ async function loadDynamicMonitoring() {
           } else if (panel.type === 'table') {
             const responses = await Promise.all(panel.targets.map((target) => queryDashboardTarget(target, start, end, step)))
             if (current !== requestId) return
-            const rows: Array<Record<string, unknown>> = []
-            const grouped = new Map<string, Record<string, unknown>>()
-            const styles = panel.tableStyles
-            responses.forEach((response, index) => {
-              const data = (response as Record<string, any>)?.data
-              const result = Array.isArray(data?.result) ? data.result : []
-              const target = panel.targets[index]!
-              const valueStyle = styles.find((item) => item.pattern === `Value #${target.ref}`)
-              for (const sample of result) {
-                const metric = (sample?.metric || {}) as Record<string, unknown>
-                const value = Array.isArray(sample?.value)
-                  ? sample.value[1]
-                  : Array.isArray(sample?.values)
-                    ? (sample.values.at(-1) as unknown[] | undefined)?.[1]
-                    : undefined
-                const key = JSON.stringify(metric)
-                const row = grouped.get(key) || {}
-                Object.entries(metric).forEach(([name, labelValue]) => {
-                  row[name] = labelValue
-                  const labelStyle = styles.find((item) => item.pattern === name)
-                  if (labelStyle) row[labelStyle.alias] = labelValue
-                })
-                row[valueStyle?.alias || target.ref] = value
-                grouped.set(key, row)
-              }
-            })
-            rows.push(...grouped.values())
-            const columns = styles.length
-              ? styles.map((style) => style.alias)
-              : [
-                  ...new Set(
-                    rows.flatMap((item) => Object.keys(item).filter((key) => !panel.targets.some((target) => target.ref === key))),
-                  ),
-                  ...panel.targets.map((target) => target.ref),
-                ]
+            const { rows, columns } = tableFromResponses(responses, panel.targets, panel.tableStyles)
             panel.tableRows = rows
             panel.tableColumns = columns
             panel.state.loading = false
@@ -800,214 +607,22 @@ function renderAllDynamicCharts() {
       }
     })
 }
-function formatPanelValue(value: number | null, unit: UnitKind) {
-  return formatMetric(value, unit)
-}
-function tableColumnLabel(_panel: DynamicPanel, column: string) {
-  return column
-}
-function tableCell(panel: DynamicPanel, column: string, row: Record<string, unknown>) {
-  const raw = row[column]
-  if (raw === undefined || raw === null || raw === '') return '—'
-  const isValue = panel.tableUnits[column] || panel.targets.some((target) => target.ref === column)
-  if (isValue) {
-    const value = Number(raw)
-    if (!Number.isFinite(value)) return String(raw)
-    const formatted = formatPanelValue(value, panel.tableUnits[column] || panel.unit)
-    return `${formatted.value}${formatted.unit ? ` ${formatted.unit}` : ''}`
-  }
-  return String(raw)
-}
 function tableLink(panel: DynamicPanel, column: string, row: Record<string, unknown>) {
-  const style = panel.tableStyles.find((item) => item.alias === column && item.link && item.linkUrl)
-  if (!style) return ''
-  return applyVariables(style.linkUrl, { __cell: String(row[column] ?? '') })
+  return resolveTableLink(panel, column, row, dashboardContextValues())
 }
 function statLink(panel: DynamicPanel, value: number) {
-  return applyVariables(panel.linkUrl, { __cell: String(value) })
+  return resolveStatLink(panel, value, dashboardContextValues())
 }
-function escapePrometheus(value: string) {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
-}
-function escapeRegex(value: string) {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
-}
-function baseLabels() {
-  const labels = [`cluster="${escapePrometheus(targetCluster.value)}"`]
-  if (contextKind.value === 'namespace' || contextKind.value === 'workload')
-    labels.push(`namespace="${escapePrometheus(namespaceName.value)}"`)
-  if (contextKind.value === 'workload')
-    labels.push(
-      workload.value === 'pods' ? `pod="${escapePrometheus(instanceName.value)}"` : `pod=~"^${escapeRegex(instanceName.value)}(-.*)?$"`,
-    )
-  if (nodeName.value) labels.push(`instance=~"^${escapeRegex(nodeName.value)}(:.*)?$"`)
-  return labels
-}
-function labels(...extra: string[]) {
-  return `{${[...baseLabels(), ...extra].join(',')}}`
-}
-const chartDefinitions = computed<ChartDefinition[]>(() => {
-  if (contextKind.value === 'cluster') {
-    const cpu = `sum(rate(node_cpu_seconds_total${labels('mode!="idle"')}[5m]))`
-    const memory = `sum(node_memory_MemTotal_bytes${labels()}) - sum(node_memory_MemAvailable_bytes${labels()})`
-    const receive = `sum(rate(node_network_receive_bytes_total${labels('device!~"lo|veth.*|docker.*|cni.*|flannel.*"')}[5m]))`
-    const transmit = `sum(rate(node_network_transmit_bytes_total${labels('device!~"lo|veth.*|docker.*|cni.*|flannel.*"')}[5m]))`
-    return [
-      {
-        key: 'cpu',
-        title: 'CPU 使用量',
-        description: '非空闲 CPU 时间汇总',
-        footer: '单位：Core',
-        unit: 'cpu',
-        queries: [{ name: 'CPU 使用', query: cpu, color: '#5b6cff' }],
-      },
-      {
-        key: 'memory',
-        title: '内存使用量',
-        description: '总内存减去可用内存',
-        footer: '单位：字节',
-        unit: 'memory',
-        queries: [{ name: '内存使用', query: memory, color: '#12b76a' }],
-      },
-      {
-        key: 'network',
-        title: '网络吞吐',
-        description: '节点物理与业务网卡速率',
-        footer: '单位：字节 / 秒',
-        unit: 'bytesPerSecond',
-        queries: [
-          { name: '接收', query: receive, color: '#2e90fa' },
-          { name: '发送', query: transmit, color: '#f79009' },
-        ],
-      },
-      {
-        key: 'capacity',
-        title: 'CPU 容量',
-        description: '节点总容量与可分配容量',
-        footer: '单位：Core',
-        unit: 'cpu',
-        queries: [
-          { name: '总容量', query: `sum(kube_node_status_capacity${labels('resource="cpu"')})`, color: '#7a5af8' },
-          { name: '可分配', query: `sum(kube_node_status_allocatable${labels('resource="cpu"')})`, color: '#12b76a' },
-        ],
-      },
-    ]
-  }
-  if (contextKind.value === 'component') {
-    return [
-      {
-        key: 'cpu',
-        title: '进程 CPU 使用量',
-        description: '组件进程 CPU 时间速率',
-        footer: '单位：Core',
-        unit: 'cpu',
-        queries: [{ name: 'CPU 使用', query: `sum(rate(process_cpu_seconds_total${labels()}[5m]))`, color: '#5b6cff' }],
-      },
-      {
-        key: 'memory',
-        title: '进程常驻内存',
-        description: '组件进程 Resident Set Size',
-        footer: '单位：字节',
-        unit: 'memory',
-        queries: [{ name: '常驻内存', query: `sum(process_resident_memory_bytes${labels()})`, color: '#12b76a' }],
-      },
-      {
-        key: 'network',
-        title: '请求速率',
-        description: 'HTTP 总请求与 5xx 请求',
-        footer: '单位：请求 / 秒',
-        unit: 'requestsPerSecond',
-        queries: [
-          { name: '全部请求', query: `sum(rate(http_requests_total${labels()}[5m]))`, color: '#2e90fa' },
-          { name: '5xx 请求', query: `sum(rate(http_requests_total${labels('code=~"5.."')}[5m]))`, color: '#f04438' },
-        ],
-      },
-      {
-        key: 'capacity',
-        title: '文件描述符',
-        description: '进程已打开与最大文件描述符',
-        footer: '单位：个',
-        unit: 'fileDescriptors',
-        queries: [
-          { name: '已打开', query: `sum(process_open_fds${labels()})`, color: '#7a5af8' },
-          { name: '最大值', query: `sum(process_max_fds${labels()})`, color: '#f79009' },
-        ],
-      },
-    ]
-  }
-  const cpu = `sum(rate(container_cpu_usage_seconds_total${labels('container!=""', 'image!=""')}[5m]))`
-  const memory = `sum(container_memory_working_set_bytes${labels('container!=""', 'image!=""')})`
-  const receive = `sum(rate(container_network_receive_bytes_total${labels()}[5m]))`
-  const transmit = `sum(rate(container_network_transmit_bytes_total${labels()}[5m]))`
-  return [
-    {
-      key: 'cpu',
-      title: 'CPU 使用量',
-      description: '关联容器的 CPU 使用速率',
-      footer: '单位：Core',
-      unit: 'cpu',
-      queries: [{ name: 'CPU 使用', query: cpu, color: '#5b6cff' }],
-    },
-    {
-      key: 'memory',
-      title: '内存使用量',
-      description: '容器 Working Set 内存汇总',
-      footer: '单位：字节',
-      unit: 'memory',
-      queries: [{ name: '内存使用', query: memory, color: '#12b76a' }],
-    },
-    {
-      key: 'network',
-      title: '网络吞吐',
-      description: '关联 Pod 网络接收与发送速率',
-      footer: '单位：字节 / 秒',
-      unit: 'bytesPerSecond',
-      queries: [
-        { name: '接收', query: receive, color: '#2e90fa' },
-        { name: '发送', query: transmit, color: '#f79009' },
-      ],
-    },
-    {
-      key: 'capacity',
-      title: 'CPU Request / Limit',
-      description: '关联容器的 CPU 请求与限制',
-      footer: '单位：Core',
-      unit: 'cpu',
-      queries: [
-        { name: 'Request', query: `sum(kube_pod_container_resource_requests${labels('resource="cpu"')})`, color: '#2e90fa' },
-        { name: 'Limit', query: `sum(kube_pod_container_resource_limits${labels('resource="cpu"')})`, color: '#f79009' },
-      ],
-    },
-  ]
-})
-const metricDefinitions = computed<MetricDefinition[]>(() => {
-  const charts = chartDefinitions.value
-  const cpu = charts.find((item) => item.key === 'cpu')!.queries[0]!.query
-  const memory = charts.find((item) => item.key === 'memory')!.queries[0]!.query
-  const networkQueries = charts.find((item) => item.key === 'network')!.queries
-  const network =
-    contextKind.value === 'component' ? networkQueries[0]!.query : `(${networkQueries[0]!.query}) + (${networkQueries[1]!.query})`
-  const available =
-    contextKind.value === 'cluster'
-      ? `count(kube_node_info${labels()})`
-      : contextKind.value === 'component'
-        ? `sum(up${labels()})`
-        : `count(kube_pod_info${labels()})`
-  const availableLabel = contextKind.value === 'cluster' ? '节点数量' : contextKind.value === 'component' ? '健康组件实例' : '关联 Pods'
-  return [
-    { key: 'cpu', label: 'CPU 当前用量', caption: '最近瞬时查询', unit: 'cpu', query: cpu, tone: 'brand' },
-    { key: 'memory', label: '内存当前用量', caption: '最近瞬时查询', unit: 'memory', query: memory, tone: 'success' },
-    {
-      key: 'network',
-      label: contextKind.value === 'component' ? '当前请求速率' : '当前网络吞吐',
-      caption: '接收与发送聚合',
-      unit: contextKind.value === 'component' ? 'requestsPerSecond' : 'bytesPerSecond',
-      query: network,
-      tone: 'info',
-    },
-    { key: 'available', label: availableLabel, caption: '当前上下文资源计数', unit: 'count', query: available, tone: 'warning' },
-  ]
-})
+const prometheusContext = computed<PrometheusContext>(() => ({
+  contextKind: contextKind.value,
+  cluster: targetCluster.value,
+  namespace: namespaceName.value,
+  workload: workload.value,
+  instance: instanceName.value,
+  node: nodeName.value,
+}))
+const chartDefinitions = computed<ChartDefinition[]>(() => buildChartDefinitions(prometheusContext.value))
+const metricDefinitions = computed<MetricDefinition[]>(() => buildMetricDefinitions(prometheusContext.value, chartDefinitions.value))
 const metricCards = computed(() =>
   metricDefinitions.value.map((definition) => {
     const state = metricStates.value[definition.key]
@@ -1017,61 +632,8 @@ const metricCards = computed(() =>
   }),
 )
 
-function formatMetric(value: number | null, unit: UnitKind): { value: string | number; unit: string } {
-  if (value === null || !Number.isFinite(value)) return { value: '—', unit: '' }
-  if (unit === 'cpu')
-    return value > 0 && value < 1 ? { value: formatNumber(value * 1000), unit: 'mCore' } : { value: formatNumber(value), unit: 'Core' }
-  if (unit === 'memory') return { value: formatBytes(value, 'B'), unit: '' }
-  if (unit === 'bytesPerSecond') return { value: `${formatBytes(value, 'B')}/s`, unit: '' }
-  if (unit === 'requestsPerSecond') return { value: formatNumber(value), unit: 'req/s' }
-  if (unit === 'seconds') return { value: formatNumber(value), unit: 's' }
-  if (unit === 'percent') return { value: formatNumber(value * 100, 1), unit: '%' }
-  return { value: formatNumber(value), unit: '个' }
-}
-function axisValue(value: number, unit: UnitKind) {
-  if (unit === 'memory') return formatBytes(value, 'B')
-  if (unit === 'bytesPerSecond') return `${formatBytes(value, 'B')}/s`
-  if (unit === 'cpu' && Math.abs(value) < 1) return `${formatNumber(value * 1000)}m`
-  if (unit === 'percent') return `${formatNumber(value * 100, 1)}%`
-  if (unit === 'seconds') return `${formatNumber(value)}s`
-  return formatNumber(value)
-}
 function errorText(error: unknown) {
   return error instanceof Error ? error.message : '请求失败，请稍后重试'
-}
-function queryStep() {
-  return Math.max(15, Math.ceil(rangeMs.value / 1000 / 120))
-}
-function resultSeries(response: unknown, definition: QueryDefinition): SeriesState[] {
-  if (!response || typeof response !== 'object') return []
-  const data = (response as Record<string, unknown>).data
-  if (!data || typeof data !== 'object' || !Array.isArray((data as Record<string, unknown>).result)) return []
-  const result = (data as Record<string, unknown>).result as unknown[]
-  return result
-    .map((entry, index) => {
-      const item = entry as Record<string, unknown>
-      const metric = item.metric && typeof item.metric === 'object' ? (item.metric as Record<string, unknown>) : {}
-      const identity = ['pod', 'container', 'job', 'instance'].map((key) => metric[key]).find(Boolean)
-      const hasLegendTemplate = definition.name.includes('{{')
-      const resolvedLegend = definition.name.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => String(metric[key] ?? ''))
-      const name = hasLegendTemplate
-        ? resolvedLegend || String(identity || definition.name)
-        : result.length > 1 && identity
-          ? `${resolvedLegend} · ${String(identity)}`
-          : result.length > 1
-            ? `${resolvedLegend} ${index + 1}`
-            : resolvedLegend
-      const values = Array.isArray(item.values)
-        ? item.values.flatMap((point) => {
-            if (!Array.isArray(point) || point.length < 2) return []
-            const timestamp = Number(point[0]) * 1000
-            const value = Number(point[1])
-            return Number.isFinite(timestamp) && Number.isFinite(value) ? [[timestamp, value] as [number, number]] : []
-          })
-        : []
-      return { name, color: result.length === 1 ? definition.color : undefined, values }
-    })
-    .filter((series) => series.values.length)
 }
 function setChartRef(key: ChartKey, element: Element | ComponentPublicInstance | null) {
   if (!(element instanceof HTMLDivElement)) return
@@ -1087,55 +649,6 @@ function ensureChart(key: ChartKey) {
   const chart = echarts.init(element)
   charts.set(key, chart)
   resizeObserver?.observe(element)
-}
-function chartOption(definition: ChartDefinition, state: ChartState, panel?: DynamicPanel): EChartsOption {
-  const palette = ['#5b6cff', '#12b76a', '#2e90fa', '#f79009', '#7a5af8', '#f04438']
-  const series: LineSeriesOption[] = state.series.map((item, index) => ({
-    name: item.name,
-    type: 'line',
-    data: item.values,
-    smooth: true,
-    showSymbol: false,
-    connectNulls: false,
-    stack: panel?.stack ? 'total' : undefined,
-    lineStyle: { width: 2, color: item.color || palette[index % palette.length] },
-    itemStyle: { color: item.color || palette[index % palette.length] },
-    areaStyle: { opacity: state.series.length === 1 ? 0.12 : 0.05 },
-    emphasis: { focus: 'series' },
-  }))
-  return {
-    animation: false,
-    color: palette,
-    grid: { left: 18, right: 20, top: 44, bottom: 48, containLabel: true },
-    legend: {
-      type: 'scroll',
-      top: 4,
-      left: 0,
-      icon: 'roundRect',
-      itemWidth: 12,
-      itemHeight: 4,
-      textStyle: { color: '#667085', fontSize: 11 },
-    },
-    tooltip: {
-      trigger: 'axis',
-      confine: true,
-      valueFormatter: (value) => (typeof value === 'number' ? axisValue(value, definition.unit) : String(value ?? '—')),
-    },
-    xAxis: {
-      type: 'time',
-      axisLine: { lineStyle: { color: '#d0d5dd' } },
-      axisLabel: { color: '#98a2b3', hideOverlap: true, formatter: '{HH}:{mm}' },
-      splitLine: { show: false },
-    },
-    yAxis: {
-      type: 'value',
-      min: panel?.axisMin ?? ((value) => Math.min(0, value.min)),
-      max: panel?.axisMax,
-      axisLabel: { color: '#98a2b3', formatter: (value: number) => axisValue(value, definition.unit) },
-      splitLine: { lineStyle: { color: '#eaecf0', type: 'dashed' } },
-    },
-    series,
-  }
 }
 function renderChart(key: ChartKey) {
   const chart = charts.get(key)
@@ -1188,7 +701,7 @@ async function loadMonitoring() {
   const metrics = metricDefinitions.value
   const end = Math.floor(Date.now() / 1000)
   const start = end - Math.floor(rangeMs.value / 1000)
-  const step = queryStep()
+  const step = queryStep(rangeMs.value)
   loading.value = true
   loadError.value = ''
   definitions.forEach((definition) => {
@@ -1231,21 +744,6 @@ async function loadMonitoring() {
   loading.value = false
   if (successCount) lastUpdated.value = Date.now()
   if (failures.length) loadError.value = `部分监控数据更新失败，已有图表和指标保持不变。${[...new Set(failures)].join('；')}`
-}
-function instantValue(response: unknown): number | null {
-  if (!response || typeof response !== 'object') return null
-  const data = (response as Record<string, unknown>).data
-  if (!data || typeof data !== 'object' || !Array.isArray((data as Record<string, unknown>).result)) return null
-  const result = (data as Record<string, unknown>).result as unknown[]
-  if (!result.length) return null
-  const first = result[0] as Record<string, unknown>
-  const raw = Array.isArray(first.value)
-    ? first.value[1]
-    : Array.isArray(first.values)
-      ? (first.values.at(-1) as unknown[] | undefined)?.[1]
-      : undefined
-  const value = Number(raw)
-  return Number.isFinite(value) ? value : null
 }
 function resizeCharts() {
   charts.forEach((chart) => chart.resize())
