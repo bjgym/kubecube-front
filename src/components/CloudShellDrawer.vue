@@ -53,10 +53,12 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Close, Loading, Monitor, RefreshRight } from '@element-plus/icons-vue'
 import { webconsoleApi } from '@/api/observability'
+import { useAuthStore } from '@/stores/auth'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 const ui = useUiStore()
 const scope = useScopeStore()
+const auth = useAuthStore()
 const terminalHost = ref<HTMLElement>()
 const status = ref<'connecting' | 'connected' | 'reconnecting' | 'error'>('connecting')
 const mock = import.meta.env.VITE_USE_MOCK === 'true'
@@ -136,7 +138,7 @@ async function connect() {
   try {
     const response = ui.shellPod
       ? ((await webconsoleApi.podShell(scope.cluster, scope.namespace, ui.shellPod, ui.shellContainer)) as { id: string })
-      : ((await webconsoleApi.cloudShell(scope.cluster)) as { id: string })
+      : ((await webconsoleApi.cloudShell(scope.cluster, auth.user?.AccountId)) as { id: string })
     const connection = new SockJS(`/webconsole/api/sockjs?${response.id}`) as unknown as SocketLike
     socket = connection
     connection.onopen = () => {

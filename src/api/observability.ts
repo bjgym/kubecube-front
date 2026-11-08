@@ -27,6 +27,9 @@ export const webconsoleApi = {
     request<unknown>({
       url: `/api/v1/webconsole/${encodeURIComponent(cluster)}/namespace/${encodeURIComponent(namespace)}/pod/${encodeURIComponent(pod)}/shell/${encodeURIComponent(container)}`,
     }),
-  cloudShell: (cluster: string) =>
-    request<unknown>({ url: `/api/v1/webconsole/extends/cloudShell/clusters/${encodeURIComponent(cluster)}` }),
+  cloudShell: (cluster: string, user?: string) =>
+    request<unknown>({
+      url: `/api/v1/webconsole/extends/cloudShell/clusters/${encodeURIComponent(cluster)}`,
+      params: user ? { user } : undefined,
+    }),
 }
