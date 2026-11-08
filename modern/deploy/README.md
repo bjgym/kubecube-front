@@ -49,6 +49,22 @@ selectors, a resource list, the container terminal and the log page. The Live
 Playwright suite (`npm run test:e2e:live`) can target the same NodePort through the
 `KUBECUBE_LIVE_BASE_URL` environment variable; it does not need a second deployment.
 
+## Live verification prerequisites
+
+The Live suite needs the platform features it exercises to be enabled:
+`kubecube-monitoring` for the dashboard and alert pages, `logseer` for log search and
+LogConfig, and `audit` for the audit page. The chart's `global.hotPlugEnable` values are
+the source of those switches; the resulting `kubecube-feature-config` ConfigMap is
+written by the platform's hotplug reconciliation.
+
+In this verification environment the hotplug CRs are in `phase=fail` because the chart
+packages they reference are missing from the hotplug package directory. Patching
+`kubecube-feature-config` to `kubecube-monitoring: enabled` and `logseer: enabled` is a
+**test prerequisite only**; the platform can reconcile the ConfigMap back to the
+hotplug state, so it must be re-applied before a Live run. Do not treat the patch as a
+durable platform configuration. The Logseer service is the test-only adapter under
+`modern/test-support/logseer-adapter`, not a production Logseer deployment.
+
 ## Local UI preview
 
 Use `npm run dev` for UI work and `VITE_USE_MOCK=true` for a backend-independent

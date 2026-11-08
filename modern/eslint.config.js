@@ -10,6 +10,19 @@ export default tseslint.config(
   ...tseslint.configs.recommended,
   ...vue.configs['flat/essential'],
   {
+    files: ['test-support/**/*.js'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        URL: 'readonly',
+        fetch: 'readonly',
+        Response: 'readonly',
+        globalThis: 'readonly',
+      },
+    },
+  },
+  {
     files: ['**/*.{ts,vue,mjs}'],
     languageOptions: {
       parserOptions: { parser: tseslint.parser, extraFileExtensions: ['.vue'] },

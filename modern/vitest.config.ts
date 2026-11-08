@@ -7,7 +7,7 @@ export default defineConfig({
   resolve: { alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) } },
   test: {
     environment: 'jsdom',
-    include: ['tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts', 'tests/**/*.test.mjs'],
     coverage: { reporter: ['text', 'html'], include: ['src/api/**', 'src/utils/**', 'src/router/scope-query.ts'] },
   },
 })
