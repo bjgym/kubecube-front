@@ -551,9 +551,11 @@ import NetworkPolicyForm from '@/components/workload/NetworkPolicyForm.vue'
 import { resourceApi, type ResourceDefinition } from '@/api/resource'
 import { getResourceConfig, type ResourceConfig } from '@/config/resources'
 import { useScopeStore } from '@/stores/scope'
-import { mergeServiceSpec, serviceSelectorFromWorkload } from '@/domain/service'
+import { serviceSelectorFromWorkload } from '@/domain/service'
 import { mergeIngressSpec, type IngressRuleForm, type IngressTlsForm } from '@/domain/ingress'
-import { mergeNetworkPolicySpec, networkPolicyToForm, newNetworkPolicyForm } from '@/domain/network-policy'
+import { networkPolicyResourceConfig } from './resource-editor/adapters/networkPolicy'
+import { buildBaseResource, keyValuePairs as pairs, newResourceFormBase, validateResourceName } from './resource-editor/shared'
+import { getResourceFormAdapter, resourceFormAdapters } from './resource-editor/types'
 import {
   buildAffinity,
   buildContainer,
@@ -570,25 +572,10 @@ import {
 } from '@/domain/workload'
 import { fromYAML, toYAML, validateYAML } from '@/utils/yaml'
 import type { KubeResource } from '@/types/api'
-const networkConfig: ResourceConfig = {
-  key: 'networkpolicies',
-  plural: 'networkpolicies',
-  kind: 'NetworkPolicy',
-  group: 'networking.k8s.io',
-  version: 'v1',
-  namespaced: true,
-  title: '网络策略',
-  shortTitle: 'NetworkPolicy',
-  description: '管理 Pod 网络访问策略',
-  canCreate: true,
-  canEdit: true,
-  columns: [],
-  tabs: ['info'],
-}
 const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
-const config = computed(() => getResourceConfig(String(route.params.workload || '')) || networkConfig)
+const config = computed(() => getResourceConfig(String(route.params.workload || '')) || networkPolicyResourceConfig)
 const isNetwork = computed(() => route.path.includes('/network/'))
 const networkNamespace = ref(String(route.params.namespace || route.query.namespace || scope.namespace))
 const isEdit = computed(() => Boolean(route.params.instance))
@@ -693,7 +680,9 @@ function alertReceiverToKube(channel: AlertReceiverForm): Record<string, unknown
   }
 }
 const form: any = reactive({
-  name: '',
+  ...newResourceFormBase(),
+  // Service, Secret and NetworkPolicy defaults are owned by their adapters; the editor only assembles the union form.
+  ...Object.assign({}, ...Object.values(resourceFormAdapters).map((adapter) => adapter.createEmptyForm())),
   replicas: 1,
   schedule: '0 2 * * *',
   containers: [
@@ -705,31 +694,7 @@ const form: any = reactive({
     },
   ] as ContainerForm[],
   pod: newWorkloadPodForm(),
-  network: newNetworkPolicyForm(),
-  labels: [{ key: 'app', value: '' }] as KeyValue[],
   data: [{ key: 'app.properties', value: 'key=value' }] as KeyValue[],
-  secretType: 'Opaque',
-  tlsCrt: '',
-  tlsKey: '',
-  registryServer: 'https://index.docker.io/v1/',
-  registryUsername: '',
-  registryPassword: '',
-  registryEmail: '',
-  serviceType: 'ClusterIP',
-  serviceTarget: '',
-  serviceExternalName: '',
-  serviceSelector: [] as KeyValue[],
-  servicePorts: [{ name: 'http', port: 80, targetPort: 8080, protocol: 'TCP' as const }] as Array<{
-    name: string
-    port: number
-    targetPort: number
-    protocol: 'TCP' | 'UDP' | 'SCTP'
-    nodePort?: number
-  }>,
-  serviceHeadless: false,
-  serviceExternalIps: '',
-  serviceSessionAffinity: 'None' as 'None' | 'ClientIP',
-  serviceSessionAffinitySeconds: 10800,
   ingressRules: [
     {
       host: 'app.example.com',
@@ -769,6 +734,7 @@ const form: any = reactive({
   logFields: [] as KeyValue[],
   logMatchFields: [] as KeyValue[],
   logInputs: [] as LogInputForm[],
+  namespace: contextNamespace.value,
 })
 interface ServiceWorkloadOption {
   value: string
@@ -842,17 +808,6 @@ const volumeNames = computed(() =>
   ].filter(Boolean),
 )
 const activeContainerModel = computed(() => form.containers[Number(activeContainer.value)])
-function pairs(items: KeyValue[]) {
-  return Object.fromEntries(items.filter((item) => item.key).map((item) => [item.key, item.value]))
-}
-function decodeBase64(value: string | undefined): string {
-  if (!value) return ''
-  try {
-    return new TextDecoder().decode(Uint8Array.from(atob(value), (character) => character.charCodeAt(0)))
-  } catch {
-    return ''
-  }
-}
 async function readTlsFile(file: UploadFile, kind: 'crt' | 'key') {
   const text = await file.raw?.text()
   if (!text) return
@@ -913,24 +868,10 @@ function podTemplate(existing: Record<string, any> = {}, restartPolicy?: string)
   }
 }
 function buildResource(): KubeResource {
-  const base: KubeResource = rawResource.value
-    ? (JSON.parse(JSON.stringify(rawResource.value)) as KubeResource)
-    : {
-        apiVersion: config.value.group ? `${config.value.group}/${config.value.version}` : config.value.version,
-        kind: config.value.kind,
-        metadata: { name: form.name, namespace: contextNamespace.value },
-      }
-  base.apiVersion = config.value.group ? `${config.value.group}/${config.value.version}` : config.value.version
-  base.kind = config.value.kind
-  base.metadata = {
-    ...base.metadata,
-    name: form.name,
-    namespace: contextNamespace.value,
-    labels: isEdit.value ? pairs(form.labels) : { ...base.metadata.labels, ...pairs(form.labels) },
-  }
-  if (isNetwork.value) {
-    base.spec = mergeNetworkPolicySpec((base.spec || {}) as Record<string, any>, form.network)
-  } else if (isWorkload.value) {
+  const adapter = getResourceFormAdapter(config.value.key)
+  if (adapter) return adapter.buildResource(form, rawResource.value)
+  const base = buildBaseResource(config.value, form, rawResource.value)
+  if (isWorkload.value) {
     const spec = (base.spec || {}) as Record<string, any>
     if (config.value.key === 'cronjobs') {
       const jobTemplate = spec.jobTemplate || {}
@@ -1011,55 +952,7 @@ function buildResource(): KubeResource {
       base.spec = workloadSpec
     }
   } else if (config.value.key === 'configmaps') base.data = pairs(form.data)
-  else if (config.value.key === 'secrets') {
-    const existingData = (base.data || {}) as Record<string, string>
-    base.type = form.secretType
-    if (form.secretType === 'kubernetes.io/tls') {
-      base.stringData = {
-        ...(form.tlsCrt ? { 'tls.crt': form.tlsCrt } : {}),
-        ...(form.tlsKey ? { 'tls.key': form.tlsKey } : {}),
-      }
-    } else if (form.secretType === 'kubernetes.io/dockerconfigjson') {
-      if (form.registryUsername || form.registryPassword) {
-        const server = form.registryServer.trim() || 'https://index.docker.io/v1/'
-        base.stringData = {
-          '.dockerconfigjson': JSON.stringify({
-            auths: {
-              [server]: {
-                username: form.registryUsername,
-                password: form.registryPassword,
-                email: form.registryEmail || undefined,
-                auth: btoa(`${form.registryUsername}:${form.registryPassword}`),
-              },
-            },
-          }),
-        }
-      }
-    } else {
-      const desiredKeys = new Set(form.data.filter((item: KeyValue) => item.key).map((item: KeyValue) => item.key))
-      base.data = Object.fromEntries(Object.entries(existingData).filter(([key]) => desiredKeys.has(key)))
-      base.stringData = Object.fromEntries(
-        form.data
-          .filter((item: KeyValue) => item.key && (!Object.hasOwn(existingData, item.key) || item.value !== ''))
-          .map((item: KeyValue) => [item.key, item.value]),
-      )
-    }
-  } else if (config.value.key === 'services') {
-    base.spec = mergeServiceSpec((base.spec || {}) as Record<string, any>, {
-      type: form.serviceType,
-      ports: form.servicePorts,
-      selector: pairs(form.serviceSelector),
-      editing: isEdit.value,
-      headless: form.serviceHeadless,
-      externalIPs: form.serviceExternalIps
-        .split(',')
-        .map((ip: string) => ip.trim())
-        .filter(Boolean),
-      sessionAffinity: form.serviceSessionAffinity,
-      sessionAffinitySeconds: form.serviceSessionAffinitySeconds,
-      externalName: form.serviceExternalName,
-    })
-  } else if (config.value.key === 'ingresses') {
+  else if (config.value.key === 'ingresses') {
     base.spec = mergeIngressSpec((base.spec || {}) as Record<string, any>, {
       className: form.ingressClass,
       rules: form.ingressRules,
@@ -1212,19 +1105,26 @@ watch(
 watch(mode, (value) => {
   if (value === 'yaml') yamlContent.value = previewYaml.value
 })
+// NetworkPolicy create lets the user retarget the namespace; adapters build metadata from form.namespace.
+watch(contextNamespace, (value) => {
+  form.namespace = value
+})
 function validateName() {
-  nameError.value = !form.name
-    ? '请输入资源名称'
-    : !/^[a-z0-9]([-a-z0-9]*[a-z0-9])?$/.test(form.name)
-      ? '仅支持小写字母、数字和中划线，且不能以中划线开头或结尾'
-      : ''
+  nameError.value = validateResourceName(form.name)[0] ?? ''
   return !nameError.value
 }
 async function nextStep() {
   if (currentStep.value === 0 && !validateName()) return
-  if (currentStep.value === 1 && isWorkload.value && form.containers.some((item: ContainerForm) => !item.name || !item.image)) {
-    ElMessage.warning('请完整填写容器名称和镜像')
-    return
+  if (currentStep.value === 1) {
+    if (isWorkload.value && form.containers.some((item: ContainerForm) => !item.name || !item.image)) {
+      ElMessage.warning('请完整填写容器名称和镜像')
+      return
+    }
+    const issue = getResourceFormAdapter(config.value.key)?.validate(form)[0]
+    if (issue) {
+      ElMessage.warning(issue)
+      return
+    }
   }
   currentStep.value++
 }
@@ -1242,12 +1142,19 @@ function removeContainer(name: string | number) {
 }
 function fillForm(resource: KubeResource) {
   rawResource.value = resource
+  const adapter = getResourceFormAdapter(config.value.key)
+  if (adapter) {
+    Object.assign(form, adapter.fillForm(resource))
+    nameError.value = ''
+    yamlContent.value = toYAML(resource)
+    return
+  }
   form.name = resource.metadata.name
+  form.namespace = String(resource.metadata.namespace || contextNamespace.value)
   nameError.value = ''
   form.labels = Object.entries(resource.metadata.labels || {}).map(([key, value]) => ({ key, value }))
   if (!form.labels.length) form.labels = [{ key: 'app', value: form.name }]
   const spec = resource.spec as Record<string, any> | undefined
-  if (isNetwork.value) form.network = networkPolicyToForm(spec)
   form.replicas = Number(spec?.replicas || 1)
   form.schedule = spec?.schedule || form.schedule
   const podSpec = spec?.template?.spec || spec?.jobTemplate?.spec?.template?.spec || undefined
@@ -1258,45 +1165,7 @@ function fillForm(resource: KubeResource) {
       containerToForm(item, index < containers.length ? 'normal' : 'init'),
     )
   form.pod = podFormFromSpec(podSpec, spec, config.value.key)
-  if (config.value.key === 'secrets') {
-    const entries = new Map(Object.keys(resource.data || {}).map((key) => [key, '']))
-    Object.entries((resource.stringData || {}) as Record<string, string>).forEach(([key, value]) => entries.set(key, value))
-    form.data = [...entries].map(([key, value]) => ({ key, value }))
-  } else form.data = Object.entries((resource.data || {}) as Record<string, string>).map(([key, value]) => ({ key, value }))
-  form.secretType = String(resource.type || 'Opaque')
-  const stringData = (resource.stringData || {}) as Record<string, string>
-  form.tlsCrt = stringData['tls.crt'] || decodeBase64(resource.data?.['tls.crt'])
-  form.tlsKey = stringData['tls.key'] || decodeBase64(resource.data?.['tls.key'])
-  const dockerConfig = stringData['.dockerconfigjson'] || decodeBase64(resource.data?.['.dockerconfigjson'])
-  if (dockerConfig) {
-    try {
-      const parsed = JSON.parse(dockerConfig) as { auths?: Record<string, Record<string, string>> }
-      const [server, auth] = Object.entries(parsed.auths || {})[0] || []
-      if (server && auth) {
-        form.registryServer = server
-        form.registryUsername = auth.username || ''
-        form.registryPassword = auth.password || ''
-        form.registryEmail = auth.email || ''
-      }
-    } catch {
-      form.registryServer = 'https://index.docker.io/v1/'
-    }
-  }
-  form.serviceType = String(spec?.type || 'ClusterIP')
-  form.serviceTarget = ''
-  form.serviceExternalName = String(spec?.externalName || '')
-  form.serviceSelector = Object.entries((spec?.selector || {}) as Record<string, string>).map(([key, value]) => ({ key, value }))
-  form.servicePorts = (Array.isArray(spec?.ports) ? spec.ports : []).map((port: Record<string, any>) => ({
-    name: String(port.name || ''),
-    port: Number(port.port || 80),
-    targetPort: Number(port.targetPort || port.port || 8080),
-    protocol: port.protocol || 'TCP',
-    nodePort: port.nodePort ? Number(port.nodePort) : undefined,
-  }))
-  form.serviceHeadless = spec?.clusterIP === 'None'
-  form.serviceExternalIps = (Array.isArray(spec?.externalIPs) ? spec.externalIPs : []).join(', ')
-  form.serviceSessionAffinity = spec?.sessionAffinity === 'ClientIP' ? 'ClientIP' : 'None'
-  form.serviceSessionAffinitySeconds = Number(spec?.sessionAffinityConfig?.clientIP?.timeoutSeconds ?? 10800)
+  form.data = Object.entries((resource.data || {}) as Record<string, string>).map(([key, value]) => ({ key, value }))
   form.ingressClass = spec?.ingressClassName || 'nginx'
   form.ingressRules = (Array.isArray(spec?.rules) ? spec.rules : []).map((rule: Record<string, any>) => ({
     host: String(rule.host || ''),
@@ -1398,6 +1267,7 @@ onMounted(async () => {
     fillForm(resource)
   } else {
     form.name = isNetwork.value ? 'default-policy' : 'example-app'
+    form.namespace = contextNamespace.value
     form.labels[0]!.value = form.name
     yamlContent.value = previewYaml.value
   }
