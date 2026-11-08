@@ -289,7 +289,7 @@
               ><el-select v-model="eventScope" aria-label="事件对象" class="compact-select" @change="onEventScopeChange"
                 ><el-option label="当前资源" value="resource" /><el-option label="关联 Pod" value="pod" /></el-select
               ><el-select v-if="eventScope === 'pod'" v-model="eventPod" aria-label="事件 Pod" filterable class="pod-select"
-                ><el-option v-for="pod in logPodOptions" :key="pod" :label="pod" :value="pod" /></el-select
+                ><el-option v-for="pod in podOptions" :key="pod" :label="pod" :value="pod" /></el-select
               ><el-select v-model="eventTypeFilter" aria-label="事件类型" class="compact-select"
                 ><el-option label="全部类型" value="" /><el-option label="Normal" value="Normal" /><el-option
                   label="Warning"
@@ -337,11 +337,7 @@
                 filterable
                 class="pod-select"
                 @change="loadRelated"
-                ><el-option label="当前资源" value="" /><el-option
-                  v-for="pod in logPodOptions"
-                  :key="pod"
-                  :label="`Pod: ${pod}`"
-                  :value="pod"
+                ><el-option label="当前资源" value="" /><el-option v-for="pod in podOptions" :key="pod" :label="`Pod: ${pod}`" :value="pod"
               /></el-select>
               <el-select v-model="conditionTypeFilter" aria-label="Condition 类型" class="compact-select"
                 ><el-option label="全部 Condition" value="" /><el-option
@@ -366,40 +362,6 @@
               ><template #default="{ row }">{{ formatDate(row.lastUpdateTime || row.lastTransitionTime) }}</template></el-table-column
             ><template #empty><EmptyState title="暂无 Condition" description="该资源未上报状态条件" /></template></el-table
         ></template>
-
-        <template v-else-if="activeTab === 'log'"
-          ><div class="log-toolbar">
-            <div class="log-selectors">
-              <el-select v-model="logPod" placeholder="选择 Pod" @change="onLogPodChange"
-                ><el-option v-for="pod in logPodOptions" :key="pod" :label="pod" :value="pod" /></el-select
-              ><el-select v-model="logContainer" placeholder="选择容器" @change="onLogContainerChange"
-                ><el-option v-for="container in logContainerOptions" :key="container" :label="container" :value="container"
-              /></el-select>
-            </div>
-            <div>
-              <el-button text :disabled="logsLoading || !logSelection || logLines.length >= 5000" @click="loadOlderLogs">加载更早</el-button
-              ><el-button text :disabled="logsLoading" @click="refreshLatestLogs">加载更新</el-button
-              ><el-checkbox v-model="logPrevious" :disabled="logsLoading" @change="onLogPreviousChange">上一容器</el-checkbox
-              ><el-checkbox v-model="logAutoRefresh">自动刷新</el-checkbox
-              ><el-button :loading="logsLoading" @click="loadLogs()"
-                ><el-icon><Refresh /></el-icon>刷新</el-button
-              ><el-button @click="openLogShell"
-                ><el-icon><Monitor /></el-icon>容器终端</el-button
-              >
-            </div>
-          </div>
-          <div class="log-viewer">
-            <div class="log-viewer__header">
-              <span
-                ><i :class="{ live: logAutoRefresh }" />{{
-                  logsLoading ? '正在读取日志' : `容器 ${logInfo?.containerName || logContainer || '—'} · 已加载 ${logLines.length} 行`
-                }}</span
-              ><span>{{ logLineCount }} 行<template v-if="logInfo?.truncated"> · 已达后端读取上限</template></span>
-            </div>
-            <el-alert v-if="logError" :title="logError" type="error" :closable="false" show-icon class="log-error" />
-            <pre ref="logViewer">{{ logContent || '暂无日志。请选择 Pod 和容器后刷新。' }}</pre>
-          </div></template
-        >
 
         <template v-else-if="activeTab === 'monitor'"><DashboardView /></template>
         <template v-else-if="activeTab === 'extrnal'">
@@ -429,6 +391,19 @@
             ></el-table
           >
         </template>
+        <PodLogsPanel
+          v-show="activeTab === 'log'"
+          ref="podLogsPanel"
+          :resource="resource"
+          :instance-name="instanceName"
+          :config-key="config.key"
+          :scope-key="scope.key"
+          :cluster="scope.cluster"
+          :namespace="scope.namespace"
+          :pods="relatedPods"
+          :pod-options="podOptions"
+          :active="activeTab === 'log'"
+        />
       </div>
     </section>
     <el-dialog v-model="scaleOpen" title="调整副本数" width="min(460px, 94vw)" :close-on-click-modal="false">
@@ -520,25 +495,24 @@
   </div>
 </template>
 <script setup lang="ts">
-import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowDown, ArrowRight, Document, Monitor, Refresh, Setting } from '@element-plus/icons-vue'
+import { ArrowDown, ArrowRight, Document, Refresh, Setting } from '@element-plus/icons-vue'
 import PageHeader from '@/components/PageHeader.vue'
 import StatusTag from '@/components/StatusTag.vue'
 import EmptyState from '@/components/EmptyState.vue'
 import CodeEditor from '@/components/CodeEditor.vue'
 import YamlEditorDialog from '@/components/YamlEditorDialog.vue'
 import DashboardView from './DashboardView.vue'
+import PodLogsPanel from './resource-detail/PodLogsPanel.vue'
 import { resourceApi, type EndpointSubset, type ExternalAccessPortUpdate, type ResourceDefinition } from '@/api/resource'
 import { getResourceConfig } from '@/config/resources'
 import { useViewport } from '@/composables/useViewport'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
 import { formatDate } from '@/utils/format'
-import { formatPodLogs, mergeOlderLogs, olderPodLogQuery, podLogQuery } from '@/utils/pod-log'
 import { fromYAML, toYAML } from '@/utils/yaml'
-import type { PodLogDetails, PodLogInfo, PodLogLine, PodLogSelection } from '@/api/resource'
 import type { KubeResource } from '@/types/api'
 type EventResource = KubeResource & {
   type?: string
@@ -556,6 +530,12 @@ interface ExternalPortFormRow {
   servicePortName?: string
   enabled: boolean
   externalPort: number | null
+}
+interface PodLogsPanelExposed {
+  showPod: (name: string) => void
+  clearPod: () => void
+  resetWindow: () => void
+  syncFromPods: () => void
 }
 const route = useRoute()
 const router = useRouter()
@@ -576,6 +556,7 @@ const tabLabels = computed<Record<string, string>>(() => ({
   extrnal: '对外服务端口',
 }))
 const resource = ref<KubeResource>()
+const podLogsPanel = ref<PodLogsPanelExposed>()
 const loading = ref(false)
 const error = ref('')
 const relatedPods = ref<KubeResource[]>([])
@@ -636,20 +617,6 @@ const relatedAutoRefresh = ref(true)
 const yamlOpen = ref(false)
 const yamlContent = ref('')
 const yamlSubmitting = ref(false)
-const logPod = ref('')
-const logContainer = ref('')
-const logContent = ref('')
-const logDetails = ref<PodLogDetails>()
-const logInfo = computed<PodLogInfo | undefined>(() => logDetails.value?.info)
-const logLineCount = computed(() => logLines.value.length)
-const logsLoading = ref(false)
-const logAutoRefresh = ref(false)
-const logSelection = ref<PodLogSelection>()
-const logLines = ref<PodLogLine[]>([])
-const logError = ref('')
-const logViewer = ref<HTMLElement>()
-const LOG_PAGE_SIZE = 100
-const logPrevious = ref(false)
 const externalDialogOpen = ref(false)
 const scaleOpen = ref(false)
 const scaleReplicas = ref(1)
@@ -674,7 +641,6 @@ const conditionTypeFilter = ref('')
 let externalRequestId = 0
 let relatedRequestId = 0
 let eventRequestId = 0
-let logRequestId = 0
 const context = computed(() => ({ cluster: scope.cluster, namespace: scope.namespace, name: instanceName.value }))
 const writeAllowed = computed(() => scope.canWrite(config.value.key) || scope.canWrite(config.value.plural))
 const isProtectedResource = computed(() => {
@@ -924,14 +890,9 @@ const filteredEvents = computed(() => events.value.filter((event) => !eventTypeF
 const servicePorts = computed(
   () => ((resource.value?.spec as Record<string, any> | undefined)?.ports || []) as Array<Record<string, unknown>>,
 )
-const containers = computed(() => {
-  const spec = resource.value?.spec as Record<string, any> | undefined
-  return (spec?.containers || spec?.template?.spec?.containers || []) as Array<{ name: string }>
-})
-const logPodOptions = computed(() =>
+const podOptions = computed(() =>
   config.value.key === 'pods' ? [instanceName.value] : filteredRelatedPods.value.map((item) => item.metadata.name),
 )
-const logContainerOptions = computed(() => containers.value.map((item) => item.name))
 const podDefinition: ResourceDefinition = { plural: 'pods', kind: 'Pod', group: '', version: 'v1', namespaced: true }
 const jobDefinition: ResourceDefinition = { plural: 'jobs', kind: 'Job', group: 'batch', version: 'v1', namespaced: true }
 const eventDefinition: ResourceDefinition = { plural: 'events', kind: 'Event', group: '', version: 'v1', namespaced: true }
@@ -942,7 +903,6 @@ const replicaSetDefinition: ResourceDefinition = {
   version: 'v1',
   namespaced: true,
 }
-let logTimer: ReturnType<typeof setInterval> | undefined
 let relatedTimer: ReturnType<typeof setInterval> | undefined
 function syncRelatedTimer() {
   clearInterval(relatedTimer)
@@ -1071,18 +1031,10 @@ async function loadRelated() {
       }
     }
     if (['event', 'condition'].includes(activeTab.value)) {
-      if (!logPodOptions.value.includes(eventPod.value)) eventPod.value = logPodOptions.value[0] || ''
-      if (conditionPod.value && !logPodOptions.value.includes(conditionPod.value)) conditionPod.value = ''
+      if (!podOptions.value.includes(eventPod.value)) eventPod.value = podOptions.value[0] || ''
+      if (conditionPod.value && !podOptions.value.includes(conditionPod.value)) conditionPod.value = ''
     }
-    if (activeTab.value === 'log') {
-      const nextPod = logPodOptions.value.includes(logPod.value) ? logPod.value : logPodOptions.value[0] || ''
-      if (nextPod !== logPod.value) {
-        logPod.value = nextPod
-        resetLogWindow()
-      }
-      if (!logContainer.value) logContainer.value = logContainerOptions.value[0] || 'app'
-      if (logPod.value) await loadLogs()
-    }
+    if (activeTab.value === 'log') podLogsPanel.value?.syncFromPods()
   } catch (reason) {
     if (current === relatedRequestId)
       relatedError.value = `关联资源加载失败：${reason instanceof Error ? reason.message : '请求失败，请稍后重试'}。已保留当前数据。`
@@ -1318,128 +1270,12 @@ async function onCommand(command: string) {
   }
 }
 function showLogs(row: KubeResource) {
-  logPod.value = row.metadata.name
-  resetLogWindow()
+  podLogsPanel.value?.showPod(row.metadata.name)
   changeTab('log')
 }
 function openContainerShell(row: KubeResource) {
   const container = ((row.spec as Record<string, any>)?.containers?.[0]?.name || 'app') as string
   ui.openShell(row.metadata.name, container)
-}
-function openLogShell() {
-  if (logPod.value) ui.openShell(logPod.value, logContainer.value || 'app')
-}
-function resetLogWindow() {
-  logRequestId++
-  logsLoading.value = false
-  logSelection.value = undefined
-  logDetails.value = undefined
-  logLines.value = []
-  logContent.value = ''
-  logError.value = ''
-}
-function onLogPodChange() {
-  const pod = relatedPods.value.find((item) => item.metadata.name === logPod.value)
-  logContainer.value = (pod?.spec as Record<string, any>)?.containers?.[0]?.name || 'app'
-  logPrevious.value = false
-  resetLogWindow()
-  loadLogs()
-}
-function onLogContainerChange() {
-  logPrevious.value = false
-  resetLogWindow()
-  loadLogs()
-}
-function onLogPreviousChange() {
-  resetLogWindow()
-  loadLogs()
-}
-function newerLogQuery(containerName: string, selection: PodLogSelection, previous: boolean) {
-  return {
-    containerName,
-    offsetFrom: selection.offsetTo,
-    offsetTo: selection.offsetTo + LOG_PAGE_SIZE,
-    referenceTimestamp: selection.referencePoint.timestamp,
-    referenceLineNum: selection.referencePoint.lineNum,
-    logFilePosition: selection.logFilePosition,
-    previous,
-  }
-}
-function mergeNewerLogs(current: PodLogLine[], incoming: PodLogLine[]): PodLogLine[] {
-  const seen = new Set(current.map((line) => `${line.timestamp}\u0000${line.content}`))
-  return [
-    ...current,
-    ...incoming.filter((line) => {
-      const key = `${line.timestamp}\u0000${line.content}`
-      if (seen.has(key)) return false
-      seen.add(key)
-      return true
-    }),
-  ]
-}
-async function loadLogs(mode: 'latest' | 'older' | 'newer' = 'latest') {
-  if (!logPod.value) return
-  const current = ++logRequestId
-  const pod = logPod.value
-  const container = logContainer.value
-  const previous = logPrevious.value
-  const selection = logSelection.value
-  const viewer = logViewer.value
-  const distanceFromBottom = viewer ? viewer.scrollHeight - viewer.scrollTop - viewer.clientHeight : 0
-  logsLoading.value = true
-  logError.value = ''
-  try {
-    const query =
-      mode === 'older' && selection
-        ? olderPodLogQuery(container, selection, LOG_PAGE_SIZE, previous)
-        : mode === 'newer' && selection
-          ? newerLogQuery(container, selection, previous)
-          : podLogQuery(container, LOG_PAGE_SIZE, previous)
-    const details = await resourceApi.podLogs(scope.cluster, scope.namespace, pod, query)
-    if (current !== logRequestId) return
-    const lines =
-      mode === 'older'
-        ? mergeOlderLogs(logLines.value, details.logs)
-        : mode === 'newer'
-          ? mergeNewerLogs(logLines.value, details.logs)
-          : details.logs
-    let nextSelection = details.selection
-    if (selection && mode !== 'latest' && (mode !== 'newer' || details.logs.length)) {
-      nextSelection = {
-        ...details.selection,
-        offsetFrom: Math.min(selection.offsetFrom, details.selection.offsetFrom),
-        offsetTo: Math.max(selection.offsetTo, details.selection.offsetTo),
-      }
-    }
-    logDetails.value = { ...details, selection: nextSelection, logs: lines }
-    logSelection.value = nextSelection
-    logLines.value = lines
-    logContent.value = formatPodLogs({ ...details, logs: lines }, true)
-  } catch (error) {
-    if (current === logRequestId)
-      logError.value = `日志加载失败：${error instanceof Error ? error.message : '请求失败，请稍后重试'}。已保留当前日志与读取位置。`
-  } finally {
-    if (current === logRequestId) {
-      logsLoading.value = false
-      await nextTick()
-      if (viewer) viewer.scrollTop = Math.max(0, viewer.scrollHeight - viewer.clientHeight - distanceFromBottom)
-    }
-  }
-}
-async function loadOlderLogs() {
-  if (!logSelection.value || logLines.value.length >= 5000) return
-  await loadLogs('older')
-}
-async function refreshLatestLogs() {
-  await loadLogs(logSelection.value ? 'newer' : 'latest')
-}
-function startLogTimer() {
-  clearInterval(logTimer)
-  if (logAutoRefresh.value && activeTab.value === 'log') {
-    logTimer = setInterval(() => {
-      if (!logsLoading.value) void loadLogs('newer')
-    }, 3000)
-  }
 }
 watch(
   [instanceName, () => config.value.key, () => scope.key],
@@ -1447,9 +1283,7 @@ watch(
     externalRequestId++
     relatedRequestId++
     eventRequestId++
-    clearInterval(logTimer)
     clearInterval(relatedTimer)
-    resetLogWindow()
     relatedPods.value = []
     relatedJobs.value = []
     events.value = []
@@ -1457,8 +1291,6 @@ watch(
     eventPod.value = ''
     conditionPod.value = ''
     conditionTypeFilter.value = ''
-    logPod.value = ''
-    logContainer.value = ''
     relatedLoading.value = false
     eventsLoading.value = false
     relatedError.value = ''
@@ -1470,15 +1302,11 @@ watch(
     externalLoading.value = false
     externalLoadError.value = ''
     externalSubmitError.value = ''
-    void loadResource().then(() => {
-      startLogTimer()
-      syncRelatedTimer()
-    })
+    void loadResource().then(syncRelatedTimer)
   },
   { immediate: true },
 )
 watch(activeTab, (tab, previous) => {
-  clearInterval(logTimer)
   relatedRequestId++
   relatedLoading.value = false
   if (previous === 'event' && tab !== 'event') {
@@ -1488,10 +1316,8 @@ watch(activeTab, (tab, previous) => {
     eventsLoading.value = false
   }
   if (previous === 'condition' && tab !== 'condition') conditionTypeFilter.value = ''
-  if (previous === 'log' && tab !== 'log') resetLogWindow()
   if (tab === 'event') void loadRelated().then(loadEvents)
   else if (['pod', 'jobs', 'log', 'condition'].includes(tab)) void loadRelated()
-  startLogTimer()
 })
 watch(eventPod, () => {
   if (activeTab.value === 'event' && eventScope.value === 'pod') void loadEvents()
@@ -1506,23 +1332,20 @@ watch(versionFilter, () => {
   eventPod.value = ''
   conditionPod.value = ''
   conditionTypeFilter.value = ''
-  logPod.value = ''
+  podLogsPanel.value?.clearPod()
   if (activeTab.value === 'event') void loadRelated().then(loadEvents)
   else if (activeTab.value === 'condition') void loadRelated()
   else if (activeTab.value === 'log') {
-    resetLogWindow()
+    podLogsPanel.value?.resetWindow()
     void loadRelated()
   }
 })
-watch(logAutoRefresh, startLogTimer)
 watch([activeTab, relatedAutoRefresh], syncRelatedTimer)
 onBeforeUnmount(() => {
-  clearInterval(logTimer)
   clearInterval(relatedTimer)
   externalRequestId++
   relatedRequestId++
   eventRequestId++
-  logRequestId++
 })
 </script>
 <style scoped>
@@ -1618,21 +1441,6 @@ onBeforeUnmount(() => {
 .event-item small {
   color: var(--text-tertiary);
 }
-.log-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  margin-bottom: 16px;
-}
-.log-toolbar > div {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.log-selectors .el-select {
-  width: 220px;
-}
 .inline-filters {
   display: flex;
   align-items: center;
@@ -1644,50 +1452,6 @@ onBeforeUnmount(() => {
 }
 .pod-select {
   width: 220px;
-}
-.log-viewer {
-  overflow: hidden;
-  color: #d0d5dd;
-  background: #101828;
-  border: 1px solid #344054;
-  border-radius: 10px;
-}
-.log-viewer__header {
-  display: flex;
-  height: 42px;
-  padding: 0 16px;
-  align-items: center;
-  justify-content: space-between;
-  color: #98a2b3;
-  background: #1d2939;
-  font-size: 11px;
-}
-.log-viewer__header > span:first-child {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.log-viewer__header i {
-  width: 6px;
-  height: 6px;
-  background: #667085;
-  border-radius: 50%;
-}
-.log-viewer__header i.live {
-  background: var(--success);
-  box-shadow: 0 0 0 4px rgb(18 183 106 / 12%);
-}
-.log-viewer pre {
-  min-height: 420px;
-  max-height: 62vh;
-  margin: 0;
-  padding: 18px;
-  overflow: auto;
-  color: #e4e7ec;
-  font-size: 12px;
-  line-height: 1.75;
-  white-space: pre-wrap;
-  word-break: break-all;
 }
 .external-table {
   margin-top: 18px;
@@ -1738,13 +1502,6 @@ onBeforeUnmount(() => {
   .metadata-groups {
     grid-template-columns: 1fr;
   }
-  .log-toolbar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .log-toolbar > div {
-    flex-wrap: wrap;
-  }
 }
 @media (max-width: 600px) {
   .detail-content {
@@ -1753,12 +1510,6 @@ onBeforeUnmount(() => {
   .detail-tabs {
     padding: 0 12px;
     overflow-x: auto;
-  }
-  .log-selectors {
-    flex-direction: column;
-  }
-  .log-selectors .el-select {
-    width: 100%;
   }
 }
 </style>
