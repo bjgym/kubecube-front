@@ -11,12 +11,6 @@
     </div>
     <div class="app-header__right">
       <span v-if="mock" class="mock-badge">UI 预览</span>
-      <el-tooltip :content="isPlatform ? '进入工作空间' : '进入运维管理'" placement="bottom">
-        <el-button v-if="auth.canManage" class="switch-button" @click="switchArea"
-          ><el-icon><Switch /></el-icon><span>{{ isPlatform ? '工作空间' : '运维管理' }}</span></el-button
-        >
-      </el-tooltip>
-      <span class="divider" />
       <el-dropdown trigger="click" @command="onCommand">
         <button class="user-menu" type="button" aria-label="用户菜单">
           <span class="avatar">{{ avatarText }}</span>
@@ -46,11 +40,10 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowDown, Expand, Fold, Key, Menu, Operation, Switch, SwitchButton } from '@element-plus/icons-vue'
+import { ArrowDown, Expand, Fold, Key, Menu, Operation, SwitchButton } from '@element-plus/icons-vue'
 import { useAuthStore } from '@/stores/auth'
 import { useScopeStore } from '@/stores/scope'
 import { useUiStore } from '@/stores/ui'
-import { platformLanding } from '@/config/access'
 const props = defineProps<{ mobile: boolean }>()
 const emit = defineEmits<{ toggle: [] }>()
 const route = useRoute()
@@ -86,7 +79,6 @@ const toggle = () => {
   if (props.mobile) ui.mobileSidebarOpen = true
   else emit('toggle')
 }
-const switchArea = () => router.push(isPlatform.value ? '/namespace' : platformLanding(auth.identities))
 function onCommand(command: string) {
   if (command === 'density') ui.toggleDensity()
   else if (command === 'keys') router.push('/metauser/openapi')
@@ -147,11 +139,6 @@ function onCommand(command: string) {
   color: var(--text-tertiary);
   font-size: 11px;
 }
-.switch-button {
-  color: var(--text-regular);
-  background: var(--surface-subtle);
-  border-color: var(--border-light);
-}
 .mock-badge {
   padding: 3px 8px;
   color: #b54708;
@@ -159,11 +146,6 @@ function onCommand(command: string) {
   border: 1px solid #fedf89;
   border-radius: 5px;
   font-size: 11px;
-}
-.divider {
-  width: 1px;
-  height: 26px;
-  background: var(--border-light);
 }
 .user-menu {
   display: flex;
@@ -209,17 +191,11 @@ function onCommand(command: string) {
     padding: 0 14px;
   }
   .app-header__area small,
-  .user-info,
-  .divider,
-  .switch-button span {
+  .user-info {
     display: none;
   }
   .app-header__right {
     gap: 8px;
-  }
-  .switch-button {
-    width: 36px;
-    padding: 0;
   }
 }
 </style>

@@ -48,7 +48,7 @@ test('workspace, resource console and platform areas stay reachable from the sid
   await areas.getByText('运维管理', { exact: true }).click()
   await expect(page).toHaveURL(/#\/platform\/user\/list/)
   await expect(areas.locator('.el-menu-item.is-active')).toHaveText('运维管理')
-  await expect(page.getByRole('button', { name: '工作空间', exact: true })).toBeVisible()
+  await expect(page.locator('.app-header__right').getByRole('button', { name: /工作空间|运维管理/ })).toHaveCount(0)
 
   await areas.getByText('资源控制台', { exact: true }).click()
   await expect(page).toHaveURL(/#\/control\/dashboard/)
@@ -292,7 +292,7 @@ test('entering a namespace card from another cluster updates the workspace conte
 test('tenant administrators only receive tenant-scoped platform navigation', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('kubecube-mock-role', 'tenant'))
   await login(page)
-  await page.getByRole('button', { name: '运维管理', exact: true }).click()
+  await page.locator('.app-sidebar__areas').getByText('运维管理', { exact: true }).click()
   await expect(page).toHaveURL(/platform\/tenant\/tenant/)
   await expect(page.getByRole('heading', { name: '租户与项目', exact: true })).toBeVisible()
   await expect(page.getByText('用户管理', { exact: true })).toHaveCount(0)
