@@ -5,7 +5,7 @@
       <el-menu :default-active="activeArea" :collapse="collapsed" :collapse-transition="false" @select="onAreaSelect">
         <el-menu-item index="workspace">
           <el-icon><Grid /></el-icon>
-          <template #title>工作空间</template>
+          <template #title>空间总览</template>
         </el-menu-item>
         <el-menu-item index="console">
           <el-icon><Odometer /></el-icon>

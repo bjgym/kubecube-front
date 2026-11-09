@@ -16,10 +16,10 @@
             ><el-icon><Monitor /></el-icon
           ></span>
           <div>
-            <h2>{{ ui.shellPod ? '容器终端' : 'Cloud Shell' }}</h2>
+            <h2>{{ sessionScope.pod ? '容器终端' : 'Cloud Shell' }}</h2>
             <p>
-              {{ scope.cluster }}<span v-if="scope.namespace"> / {{ scope.namespace }}</span
-              ><span v-if="ui.shellPod"> / {{ ui.shellPod }} / {{ ui.shellContainer }}</span>
+              {{ sessionScope.cluster }}<span v-if="sessionScope.namespace"> / {{ sessionScope.namespace }}</span
+              ><span v-if="sessionScope.pod"> / {{ sessionScope.pod }} / {{ sessionScope.container }}</span>
             </p>
           </div>
           <span class="connection" :class="`connection--${status}`"><i />{{ statusText }}</span>
@@ -61,6 +61,13 @@ const scope = useScopeStore()
 const auth = useAuthStore()
 const terminalHost = ref<HTMLElement>()
 const status = ref<'connecting' | 'connected' | 'reconnecting' | 'error'>('connecting')
+interface SessionScope {
+  cluster: string
+  namespace: string
+  pod: string
+  container: string
+}
+const sessionScope = ref<SessionScope>({ cluster: '', namespace: '', pod: '', container: '' })
 const mock = import.meta.env.VITE_USE_MOCK === 'true'
 const statusText = computed(
   () => ({ connecting: '连接中', connected: mock ? '预览会话' : '已连接', reconnecting: '重新连接中', error: '连接失败' })[status.value],
@@ -81,7 +88,11 @@ let observer: ResizeObserver | undefined
 let heartbeat: ReturnType<typeof setInterval> | undefined
 let retries = 0
 let closing = false
+function captureSessionScope() {
+  sessionScope.value = { cluster: scope.cluster, namespace: scope.namespace, pod: ui.shellPod, container: ui.shellContainer }
+}
 async function openTerminal() {
+  captureSessionScope()
   await nextTick()
   closing = false
   retries = 0
@@ -123,11 +134,11 @@ function startMock() {
   status.value = 'connected'
   terminal?.writeln('\x1b[36mKubeCube Cloud Shell · UI 预览模式\x1b[0m')
   terminal?.writeln('此会话仅用于界面验证，不会向集群发送命令。\r\n')
-  terminal?.write(`\x1b[32madmin@${scope.cluster}\x1b[0m:~$ `)
+  terminal?.write(`\x1b[32madmin@${sessionScope.value.cluster}\x1b[0m:~$ `)
   terminal?.onData((data) => {
     if (data === '\r') {
       terminal?.writeln('')
-      terminal?.write(`\x1b[32madmin@${scope.cluster}\x1b[0m:~$ `)
+      terminal?.write(`\x1b[32madmin@${sessionScope.value.cluster}\x1b[0m:~$ `)
     } else if (data === '\u007f') terminal?.write('\b \b')
     else if (data === '\f') terminal?.clear()
     else terminal?.write(data)
@@ -136,9 +147,10 @@ function startMock() {
 async function connect() {
   if (!terminal) return
   try {
-    const response = ui.shellPod
-      ? ((await webconsoleApi.podShell(scope.cluster, scope.namespace, ui.shellPod, ui.shellContainer)) as { id: string })
-      : ((await webconsoleApi.cloudShell(scope.cluster, auth.user?.AccountId)) as { id: string })
+    const current = sessionScope.value
+    const response = current.pod
+      ? ((await webconsoleApi.podShell(current.cluster, current.namespace, current.pod, current.container)) as { id: string })
+      : ((await webconsoleApi.cloudShell(current.cluster, auth.user?.AccountId)) as { id: string })
     const connection = new SockJS(`/webconsole/api/sockjs?${response.id}`) as unknown as SocketLike
     socket = connection
     connection.onopen = () => {
@@ -179,6 +191,7 @@ async function connect() {
   }
 }
 async function reconnect() {
+  captureSessionScope()
   cleanupSocket()
   status.value = 'connecting'
   terminal?.clear()
@@ -199,6 +212,7 @@ function cleanup() {
   observer?.disconnect()
   terminal?.dispose()
   terminal = undefined
+  sessionScope.value = { cluster: '', namespace: '', pod: '', container: '' }
   ui.shellPod = ''
   ui.shellContainer = ''
 }

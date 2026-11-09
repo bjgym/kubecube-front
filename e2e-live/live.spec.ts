@@ -457,6 +457,36 @@ test('live four-role menus and direct URL boundaries', async ({ browser, page })
   }
 })
 
+test('live scope change from a dirty editor is transactional', async ({ page }) => {
+  test.setTimeout(240_000)
+  await login(page)
+  await page.goto('/public/#/control/deployments/create?cluster=member-arm64-6002&namespace=credflow-final')
+  await expect(page.getByRole('heading', { name: /创建/ }).first()).toBeVisible({ timeout: 90_000 })
+  const name = page.getByPlaceholder('例如：order-service')
+  await name.fill('scope-transaction-probe')
+  const namespaceSelect = page.locator('.scope-select').filter({ hasText: '空间' }).locator('.el-select')
+  const chooseNamespace = async () => {
+    await namespaceSelect.click()
+    await page.getByRole('option', { name: 'kube-system', exact: true }).click()
+  }
+  await chooseNamespace()
+  const dialog = page.locator('.el-message-box')
+  await expect(dialog).toBeVisible({ timeout: 60_000 })
+  await page.getByRole('button', { name: '继续编辑', exact: true }).click()
+  await expect(page).toHaveURL(/control\/deployments\/create/)
+  await expect(page).toHaveURL(/namespace=credflow-final/)
+  await expect(name).toHaveValue('scope-transaction-probe')
+  await expect(page.locator('.scope-select').filter({ hasText: '空间' }).locator('.el-select__placeholder')).toContainText('credflow-final')
+
+  await chooseNamespace()
+  await expect(dialog).toBeVisible({ timeout: 60_000 })
+  await page.getByRole('button', { name: '放弃修改', exact: true }).click()
+  await expect(page).toHaveURL(/control\/deployments\/list/, { timeout: 60_000 })
+  await expect(page).toHaveURL(/namespace=kube-system/, { timeout: 60_000 })
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible({ timeout: 90_000 })
+  await expect(page.getByPlaceholder('例如：order-service')).toHaveCount(0)
+})
+
 test('live cluster switch reloads namespaces and keeps the target scope', async ({ page }) => {
   test.setTimeout(180_000)
   await login(page)

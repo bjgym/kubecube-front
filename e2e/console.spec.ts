@@ -18,6 +18,22 @@ async function login(page: Page) {
   await expect(page).not.toHaveURL(/#\/login/, { timeout: 20_000 })
 }
 
+async function selectCluster(page: Page, label: string) {
+  await page.locator('.scope-select--cluster .el-select').click()
+  await page.locator('.el-select-dropdown__item:visible').filter({ hasText: label }).last().click()
+}
+
+async function scopeState(page: Page) {
+  return page.evaluate(() => {
+    const app = (document.querySelector('#app') as unknown as { __vue_app__: any }).__vue_app__
+    const scope = app.config.globalProperties.$pinia.state.value.scope
+    return { tenant: scope.tenant, project: scope.project, cluster: scope.cluster, namespace: scope.namespace }
+  })
+}
+
+const dirtyCreateUrl =
+  '/public/#/control/deployments/create?tenant=digital-retail&project=online-business&cluster=staging-hangzhou&namespace=shop-staging'
+
 test('login and cross-cluster workspace overview', async ({ page }) => {
   await page.goto('/public/#/login')
   await expect(page.getByRole('heading', { name: '登录您的账户' })).toBeVisible()
@@ -34,8 +50,8 @@ test('workspace, resource console and platform areas stay reachable from the sid
   await page.goto('/public/#/namespace')
   await expect(page.getByRole('heading', { name: '全部空间', exact: true })).toBeVisible()
   const areas = page.locator('.app-sidebar__areas')
-  await expect(areas.locator('.el-menu-item.is-active')).toHaveText('工作空间')
-  await expect(page.locator('.app-header__area > span')).toHaveText('工作空间')
+  await expect(areas.locator('.el-menu-item.is-active')).toHaveText('空间总览')
+  await expect(page.locator('.app-header__area > span')).toHaveText('空间总览')
 
   await areas.getByText('资源控制台', { exact: true }).click()
   await expect(page).toHaveURL(/#\/control\/dashboard/)
@@ -43,12 +59,12 @@ test('workspace, resource console and platform areas stay reachable from the sid
   await expect(page.locator('.app-header__area > span')).toHaveText('资源控制台')
   await expect(page.locator('.app-sidebar').getByText('资源监控', { exact: true })).toBeVisible()
 
-  await areas.getByText('工作空间', { exact: true }).click()
+  await areas.getByText('空间总览', { exact: true }).click()
   await expect(page).toHaveURL(/#\/namespace/)
   await areas.getByText('运维管理', { exact: true }).click()
   await expect(page).toHaveURL(/#\/platform\/user\/list/)
   await expect(areas.locator('.el-menu-item.is-active')).toHaveText('运维管理')
-  await expect(page.locator('.app-header__right').getByRole('button', { name: /工作空间|运维管理/ })).toHaveCount(0)
+  await expect(page.locator('.app-header__right').getByRole('button', { name: /空间总览|运维管理/ })).toHaveCount(0)
 
   await areas.getByText('资源控制台', { exact: true }).click()
   await expect(page).toHaveURL(/#\/control\/dashboard/)
@@ -287,6 +303,64 @@ test('entering a namespace card from another cluster updates the workspace conte
   await expect(page).toHaveURL(/namespace=shop-staging/)
   await expect(page.locator('.scope-select--cluster .el-select__placeholder')).toContainText('预发集群 · 杭州')
   await expect(page.locator('.scope-select').filter({ hasText: '空间' }).locator('.el-select__placeholder')).toContainText('shop-staging')
+})
+
+test('scope changes are committed only after the navigation is accepted', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/deployments/list?tenant=digital-retail&project=online-business&cluster=staging-hangzhou&namespace=shop-staging',
+  )
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible()
+  await selectCluster(page, '生产集群 · 上海')
+  await expect(page).toHaveURL(/cluster=production-shanghai/)
+  await expect(page.locator('.scope-select--cluster .el-select__placeholder')).toContainText('生产集群 · 上海')
+  await expect.poll(async () => (await scopeState(page)).cluster).toBe('production-shanghai')
+})
+
+test('canceling a scope change from a dirty editor preserves the original context', async ({ page }) => {
+  await login(page)
+  await page.goto(dirtyCreateUrl)
+  await expect(page.getByRole('heading', { name: /创建/ }).first()).toBeVisible()
+  const name = page.getByPlaceholder('例如：order-service')
+  await name.fill('scope-investigation-unsaved')
+  await selectCluster(page, '生产集群 · 上海')
+  const dialog = page.locator('.el-message-box')
+  await expect(dialog).toBeVisible()
+  await page.getByRole('button', { name: '继续编辑', exact: true }).click()
+  await expect(page).toHaveURL(/control\/deployments\/create/)
+  await expect(page).toHaveURL(/cluster=staging-hangzhou/)
+  await expect(name).toHaveValue('scope-investigation-unsaved')
+  await expect(page.locator('.scope-select--cluster .el-select__placeholder')).toContainText('预发集群 · 杭州')
+  expect((await scopeState(page)).cluster).toBe('staging-hangzhou')
+})
+
+test('discarding a dirty edit moves to the same resource list in the target scope', async ({ page }) => {
+  await login(page)
+  await page.goto(dirtyCreateUrl)
+  await expect(page.getByRole('heading', { name: /创建/ }).first()).toBeVisible()
+  await page.getByPlaceholder('例如：order-service').fill('scope-investigation-unsaved')
+  await selectCluster(page, '生产集群 · 上海')
+  const dialog = page.locator('.el-message-box')
+  await expect(dialog).toBeVisible()
+  await page.getByRole('button', { name: '放弃修改', exact: true }).click()
+  await expect(page).toHaveURL(/control\/deployments\/list/)
+  await expect(page).toHaveURL(/cluster=production-shanghai/)
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible()
+  await expect(page.getByPlaceholder('例如：order-service')).toHaveCount(0)
+  expect((await scopeState(page)).cluster).toBe('production-shanghai')
+})
+
+test('changing scope from a resource detail returns to the same resource list', async ({ page }) => {
+  await login(page)
+  await page.goto(
+    '/public/#/control/deployments/shop-web/info?tenant=digital-retail&project=online-business&cluster=production-shanghai&namespace=online-shop',
+  )
+  await expect(page.getByRole('heading', { name: 'shop-web', exact: true })).toBeVisible()
+  await selectCluster(page, '预发集群 · 杭州')
+  await expect(page).toHaveURL(/control\/deployments\/list/)
+  await expect(page).toHaveURL(/cluster=staging-hangzhou/)
+  await expect(page.getByRole('heading', { name: 'Deployments', exact: true })).toBeVisible()
+  expect((await scopeState(page)).cluster).toBe('staging-hangzhou')
 })
 
 test('tenant administrators only receive tenant-scoped platform navigation', async ({ page }) => {
@@ -690,6 +764,25 @@ test('Pod detail opens the container terminal drawer', async ({ page }) => {
   await expect(page.getByRole('button', { name: '打开终端', exact: true })).toBeVisible()
   await page.getByRole('button', { name: '打开终端', exact: true }).click()
   await expect(page.getByText('容器终端', { exact: true }).first()).toBeVisible()
+  const terminalScope = page.locator('.terminal-header p')
+  await expect(terminalScope).toContainText('production-shanghai')
+  await expect(terminalScope).toContainText('online-shop')
+  await page.evaluate(async () => {
+    const app = (document.querySelector('#app') as unknown as { __vue_app__: any }).__vue_app__
+    await app.config.globalProperties.$router.replace({
+      path: '/control/pods/list',
+      query: {
+        tenant: 'digital-retail',
+        project: 'online-business',
+        cluster: 'staging-hangzhou',
+        namespace: 'shop-staging',
+      },
+    })
+  })
+  await expect(page).toHaveURL(/control\/pods\/list/)
+  await expect(page).toHaveURL(/cluster=staging-hangzhou/)
+  await expect(terminalScope).toContainText('production-shanghai')
+  await expect(terminalScope).toContainText('online-shop')
 })
 
 test('Pod detail exposes containers and PVC detail lists mounted pods', async ({ page }) => {

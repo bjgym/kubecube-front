@@ -85,7 +85,7 @@
           class="instance-alert"
           type="warning"
           title="请先选择一个命名空间"
-          description="命名空间级自定义资源需要在具体空间中查询和创建，请在顶部工作空间中完成选择。"
+          description="命名空间级自定义资源需要在具体空间中查询和创建，请在顶部当前工作空间中完成选择。"
           show-icon
           :closable="false"
         />

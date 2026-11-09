@@ -1,12 +1,12 @@
 <template>
-  <section class="scope-bar" aria-label="工作空间上下文">
+  <section class="scope-bar" aria-label="当前工作空间上下文">
     <div class="scope-bar__title">
-      <el-icon><Collection /></el-icon><span>工作空间</span>
+      <el-icon><Collection /></el-icon><span>当前工作空间</span>
     </div>
     <div class="scope-bar__selectors">
       <label class="scope-select"
         ><span>租户</span
-        ><el-select :model-value="scope.tenant" :loading="scope.loading" placeholder="选择租户" @change="changeTenant"
+        ><el-select v-model="draft.tenant" :loading="scope.loading" placeholder="选择租户" @change="changeTenant"
           ><el-option
             v-for="item in scope.tenants"
             :key="item.metadata.name"
@@ -16,7 +16,7 @@
       <span class="scope-separator">/</span>
       <label class="scope-select"
         ><span>项目</span
-        ><el-select :model-value="scope.project" :disabled="!scope.tenant" placeholder="选择项目" @change="changeProject"
+        ><el-select v-model="draft.project" :disabled="!scope.tenant" placeholder="选择项目" @change="changeProject"
           ><el-option
             v-for="item in scope.projects"
             :key="item.metadata.name"
@@ -26,7 +26,7 @@
       <span class="scope-separator">/</span>
       <label class="scope-select scope-select--cluster"
         ><span>集群</span
-        ><el-select :model-value="scope.cluster" placeholder="选择集群" @change="changeCluster"
+        ><el-select v-model="draft.cluster" placeholder="选择集群" @change="changeCluster"
           ><el-option
             v-for="item in scope.activeClusters"
             :key="item.clusterName"
@@ -42,7 +42,7 @@
       <span class="scope-separator">/</span>
       <label class="scope-select"
         ><span>空间</span
-        ><el-select :model-value="scope.namespace" :disabled="!scope.cluster" placeholder="选择空间" @change="changeNamespace"
+        ><el-select v-model="draft.namespace" :disabled="!scope.cluster" placeholder="选择空间" @change="changeNamespace"
           ><el-option
             v-for="item in scope.namespaces"
             :key="item.metadata.name"
@@ -65,7 +65,7 @@
     <div class="scope-drawer">
       <label class="scope-field"
         ><span>租户</span
-        ><el-select :model-value="scope.tenant" :loading="scope.loading" placeholder="选择租户" @change="changeTenant"
+        ><el-select v-model="draft.tenant" :loading="scope.loading" placeholder="选择租户" @change="changeTenant"
           ><el-option
             v-for="item in scope.tenants"
             :key="item.metadata.name"
@@ -74,7 +74,7 @@
       ></label>
       <label class="scope-field"
         ><span>项目</span
-        ><el-select :model-value="scope.project" :disabled="!scope.tenant" placeholder="选择项目" @change="changeProject"
+        ><el-select v-model="draft.project" :disabled="!scope.tenant" placeholder="选择项目" @change="changeProject"
           ><el-option
             v-for="item in scope.projects"
             :key="item.metadata.name"
@@ -83,7 +83,7 @@
       ></label>
       <label class="scope-field"
         ><span>集群</span
-        ><el-select :model-value="scope.cluster" placeholder="选择集群" @change="changeCluster"
+        ><el-select v-model="draft.cluster" placeholder="选择集群" @change="changeCluster"
           ><el-option
             v-for="item in scope.activeClusters"
             :key="item.clusterName"
@@ -98,7 +98,7 @@
       >
       <label class="scope-field"
         ><span>空间</span
-        ><el-select :model-value="scope.namespace" :disabled="!scope.cluster" placeholder="选择空间" @change="changeNamespace"
+        ><el-select v-model="draft.namespace" :disabled="!scope.cluster" placeholder="选择空间" @change="changeNamespace"
           ><el-option
             v-for="item in scope.namespaces"
             :key="item.metadata.name"
@@ -109,49 +109,57 @@
   </el-drawer>
 </template>
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ArrowDown, Collection, Refresh } from '@element-plus/icons-vue'
+import { scopeChangePath, scopeChangeQuery, type ScopeField } from '@/router/scope-transition'
 import { useScopeStore } from '@/stores/scope'
 import type { KubeResource } from '@/types/api'
 const route = useRoute()
 const router = useRouter()
 const scope = useScopeStore()
 const mobileOpen = ref(false)
+const draft = reactive({ tenant: scope.tenant, project: scope.project, cluster: scope.cluster, namespace: scope.namespace })
 const displayName = (item: KubeResource) => String((item.spec as Record<string, unknown> | undefined)?.displayName || item.metadata.name)
 const mobileSummary = computed(() => {
   const cluster = scope.currentCluster?.clusterDisplayName || scope.cluster || '选择集群'
   const namespace = scope.namespace || '选择空间'
   return `${cluster} / ${namespace}`
 })
+watch(
+  () => [scope.tenant, scope.project, scope.cluster, scope.namespace] as const,
+  ([tenant, project, cluster, namespace]) => Object.assign(draft, { tenant, project, cluster, namespace }),
+  { immediate: true },
+)
 async function syncQuery() {
   await router.replace({ path: route.path, query: { ...route.query, ...scope.query } })
 }
-async function changeTenant(value: string) {
-  await scope.selectTenant(value)
+async function applyScopeChange(field: ScopeField, value: string) {
   mobileOpen.value = false
-  await router.push({ path: '/namespace', query: scope.query })
+  const target = { path: scopeChangePath(field, route), query: scopeChangeQuery(field, value, scope) }
+  try {
+    // Apply the scope only after the router guard accepts the navigation. A
+    // cancelled dirty-editor prompt must leave both the URL and Pinia untouched.
+    const failure = await router.push(target)
+    if (failure) syncDraft()
+  } catch {
+    syncDraft()
+  }
 }
-async function changeProject(value: string) {
-  await scope.selectProject(value)
-  mobileOpen.value = false
-  await router.push({ path: '/namespace', query: scope.query })
+function syncDraft() {
+  Object.assign(draft, { tenant: scope.tenant, project: scope.project, cluster: scope.cluster, namespace: scope.namespace })
 }
-async function changeCluster(value: string) {
-  await scope.selectCluster(value)
-  mobileOpen.value = false
-  await leaveStaleResource()
-  await syncQuery()
+function changeTenant(value: string) {
+  return applyScopeChange('tenant', value)
 }
-async function changeNamespace(value: string) {
-  await scope.selectNamespace(value)
-  mobileOpen.value = false
-  await leaveStaleResource()
-  await syncQuery()
+function changeProject(value: string) {
+  return applyScopeChange('project', value)
 }
-async function leaveStaleResource() {
-  const workload = route.params.workload
-  if (workload && !route.path.endsWith('/list')) await router.replace({ path: `/control/${String(workload)}/list`, query: scope.query })
+function changeCluster(value: string) {
+  return applyScopeChange('cluster', value)
+}
+function changeNamespace(value: string) {
+  return applyScopeChange('namespace', value)
 }
 async function refresh() {
   await scope.initialize(scope.query)

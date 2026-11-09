@@ -46,7 +46,8 @@ const showScope = computed(() => route.path.startsWith('/control') || route.name
 async function syncScopeFromRoute() {
   if (!showScope.value) return
   await scope.applyRouteScope(pickScopeQuery(route.query) as never)
-  if (!route.path.startsWith('/control')) return
+  // Keep the URL and the accepted scope in step on both the overview and the
+  // resource console. This runs only after the router accepted the navigation.
   const query = { ...route.query, ...scope.query }
   const keys = ['tenant', 'project', 'cluster', 'namespace'] as const
   if (keys.some((key) => String(query[key] || '') !== String(scope[key] || ''))) {

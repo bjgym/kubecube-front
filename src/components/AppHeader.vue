@@ -54,7 +54,7 @@ const ui = useUiStore()
 const isPlatform = computed(() => route.path.startsWith('/platform'))
 const areaTitle = computed(() => {
   if (isPlatform.value) return '运维管理'
-  if (route.name === 'namespace') return '工作空间'
+  if (route.name === 'namespace') return '空间总览'
   if (route.path.startsWith('/control')) return '资源控制台'
   return '账户设置'
 })

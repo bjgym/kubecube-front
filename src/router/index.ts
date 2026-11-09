@@ -21,7 +21,7 @@ const routes: RouteRecordRaw[] = [
     component: AppLayout,
     redirect: '/namespace',
     children: [
-      { path: 'namespace', name: 'namespace', component: () => import('@/views/namespace/NamespaceView.vue'), meta: { title: '我的空间' } },
+      { path: 'namespace', name: 'namespace', component: () => import('@/views/namespace/NamespaceView.vue'), meta: { title: '空间总览' } },
       {
         path: 'metauser',
         redirect: '/metauser/openapi',
